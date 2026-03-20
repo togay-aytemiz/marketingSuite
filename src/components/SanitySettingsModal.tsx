@@ -38,6 +38,13 @@ export function SanitySettingsModal({ isOpen, onClose, integrationStatus, onRefr
           </div>
 
           <div className="space-y-3 text-sm">
+            <div className={`rounded-xl border px-4 py-3 ${integrationStatus.openai.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
+              <p className="font-medium">OpenAI Text AI {integrationStatus.openai.configured ? 'ready' : 'not configured'}</p>
+              {!integrationStatus.openai.configured && (
+                <p className="text-xs mt-1 leading-relaxed">Blog metin ve karar akisi icin <code>OPENAI_API_KEY</code> eklenmeli.</p>
+              )}
+            </div>
+
             <div className={`rounded-xl border px-4 py-3 ${integrationStatus.sanity.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               <p className="font-medium">Sanity {integrationStatus.sanity.configured ? 'connected' : 'not configured'}</p>
               <p className="text-xs mt-1 leading-relaxed">

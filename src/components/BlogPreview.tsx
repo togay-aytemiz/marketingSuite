@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { Settings, PenTool, Loader2, Copy, Check, BarChart3, AlertCircle, Image as ImageIcon, Sparkles, Wand2, Send, Download, RefreshCw, Link as LinkIcon, UploadCloud, Edit3, Eye, Share2, Twitter, Linkedin, Database } from 'lucide-react';
 import { generateBlogPost, analyzeSeoForBlog, generateBlogImage, editBlogPost, addInternalLinks, generateSocialPosts } from '../services/gemini';
-import { fetchSanityPosts, fetchSanityCategories, publishToSanity } from '../services/sanity';
+import { fetchSanityPosts, publishToSanity } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
 import Markdown from 'react-markdown';
 
@@ -13,6 +13,23 @@ interface BlogPreviewProps {
   setIsGenerating: React.Dispatch<React.SetStateAction<boolean>>;
   triggerGenerate: number;
   integrationStatus: IntegrationStatus;
+}
+
+function extractInlineImagePromptsFromContent(content: string | null | undefined) {
+  const value = String(content || '');
+  const regex = /\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi;
+  const prompts: string[] = [];
+  let match = regex.exec(value);
+
+  while (match) {
+    const prompt = String(match[1] || '').trim();
+    if (prompt) {
+      prompts.push(prompt);
+    }
+    match = regex.exec(value);
+  }
+
+  return Array.from(new Set(prompts));
 }
 
 export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGenerating, setIsGenerating, triggerGenerate, integrationStatus }) => {
@@ -30,6 +47,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const [isLinking, setIsLinking] = useState(false);
   const [viewLanguage, setViewLanguage] = useState<'TR' | 'EN'>('TR');
   const [sanityMessage, setSanityMessage] = useState<{ type: 'success' | 'error', text: string } | null>(null);
+  const openAiConfigured = integrationStatus.openai.configured;
   const geminiConfigured = integrationStatus.gemini.configured;
   const sanityConfigured = integrationStatus.sanity.configured;
 
@@ -59,34 +77,84 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     setBlogImages(prev => ({ ...prev, [prompt]: { loading: false, url: imageUrl } }));
   };
 
+  const generateInlineImagesSequentially = async (content: string | null | undefined) => {
+    const prompts = extractInlineImagePromptsFromContent(content);
+
+    for (const prompt of prompts) {
+      let shouldGenerate = true;
+      setBlogImages((prev) => {
+        const existingUrl = prev[prompt]?.url;
+        if (existingUrl) {
+          shouldGenerate = false;
+          return prev;
+        }
+
+        return {
+          ...prev,
+          [prompt]: {
+            loading: true,
+            url: null,
+          },
+        };
+      });
+
+      if (!shouldGenerate) {
+        continue;
+      }
+
+      const imageUrl = await generateBlogImage(prompt);
+      setBlogImages((prev) => ({
+        ...prev,
+        [prompt]: {
+          loading: false,
+          url: imageUrl || prev[prompt]?.url || null,
+        },
+      }));
+    }
+  };
+
+  const autoGenerateBlogImages = async (response: {
+    coverImagePrompt?: string;
+    coverImagePromptEN?: string;
+    content?: string;
+    contentEN?: string;
+  }) => {
+    const generatedCoverTR = response.coverImagePrompt
+      ? await generateBlogImage(response.coverImagePrompt, true)
+      : null;
+
+    let generatedCoverEN: string | null = null;
+    if (response.coverImagePromptEN) {
+      if (
+        response.coverImagePrompt &&
+        response.coverImagePromptEN.trim() === response.coverImagePrompt.trim() &&
+        generatedCoverTR
+      ) {
+        generatedCoverEN = generatedCoverTR;
+      } else {
+        generatedCoverEN = await generateBlogImage(response.coverImagePromptEN, true);
+      }
+    }
+
+    setState((prev) => ({
+      ...prev,
+      blogCoverUrl: generatedCoverTR || prev.blogCoverUrl,
+      blogCoverUrlEN: generatedCoverEN || prev.blogCoverUrlEN || generatedCoverTR || prev.blogCoverUrl,
+    }));
+
+    await generateInlineImagesSequentially(response.content);
+    await generateInlineImagesSequentially(response.contentEN);
+  };
+
   const handleGenerate = async () => {
-    if (!geminiConfigured) {
-      setSanityMessage({ type: 'error', text: 'AI kapali. GEMINI_API_KEY ekledikten sonra blog uretebilirsin.' });
+    if (!openAiConfigured) {
+      setSanityMessage({ type: 'error', text: 'AI kapali. OPENAI_API_KEY ekledikten sonra blog uretebilirsin.' });
       return;
     }
 
     setIsGenerating(true);
+    setBlogImages({});
     setState(prev => ({ ...prev, blogContent: null, blogContentEN: null, seoAnalysis: null, seoAnalysisEN: null }));
-    
-    let sanityPostsToPass: { title: string; slug: string; excerpt?: string; category?: string; publishedAt?: string }[] | undefined = undefined;
-    let sanityCategoriesToPass: { id: string; name: string }[] | undefined = undefined;
-
-    try {
-      if (state.autoInternalLinks) {
-        const posts = await fetchSanityPosts();
-        sanityPostsToPass = posts.map((p) => ({
-          title: p.title,
-          slug: p.slug.current,
-          excerpt: p.excerpt,
-          category: p.category?.title,
-          publishedAt: p.publishedAt || p.updatedAt,
-        }));
-      }
-      const categories = await fetchSanityCategories(state.language === 'EN' ? 'en' : 'tr');
-      sanityCategoriesToPass = categories.map(c => ({ id: c._id, name: c.title }));
-    } catch (e) {
-      console.error("Error fetching Sanity data:", e);
-    }
 
     const response = await generateBlogPost(
       state.productName,
@@ -98,14 +166,10 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.blogTone,
       state.blogLength,
       state.language,
-      state.blogImageStyle,
-      sanityPostsToPass,
-      sanityCategoriesToPass
+      state.blogImageStyle
     );
     
     if (response) {
-      const selectedCategory = sanityCategoriesToPass?.find(c => c.id === response.categoryId) || null;
-      
       setViewLanguage(state.language === 'EN' ? 'EN' : 'TR');
 
       setState(prev => ({ 
@@ -116,7 +180,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         blogSlug: response.slug,
         blogCoverPrompt: response.coverImagePrompt,
         blogCoverAltText: response.coverAltText,
-        blogCategory: selectedCategory,
+        blogCategory: prev.blogCategory || null,
         blogCoverUrl: null, // Reset cover image on new generation
         blogContentEN: response.contentEN || null,
         blogTitleEN: response.titleEN || null,
@@ -142,6 +206,15 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         }
       }
       setIsAnalyzingSeo(false);
+
+      if (geminiConfigured) {
+        void autoGenerateBlogImages({
+          coverImagePrompt: response.coverImagePrompt,
+          coverImagePromptEN: response.coverImagePromptEN || undefined,
+          content: response.content,
+          contentEN: response.contentEN || undefined,
+        });
+      }
     }
     setIsGenerating(false);
   };
@@ -175,7 +248,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
 
   const handleGenerateSocial = async () => {
     const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
-    if (!currentContent || !geminiConfigured) return;
+    if (!currentContent || !openAiConfigured) return;
     setIsGeneratingSocial(true);
     const posts = await generateSocialPosts(currentContent, viewLanguage);
     if (posts) {
@@ -186,24 +259,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
 
   const handleEdit = async () => {
     const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
-    if (!editInstruction.trim() || !currentContent || !geminiConfigured) return;
+    if (!editInstruction.trim() || !currentContent || !openAiConfigured) return;
     setIsEditing(true);
-
-    let sanityPostsToPass: { title: string; slug: string; excerpt?: string; category?: string; publishedAt?: string }[] | undefined = undefined;
-    if (state.autoInternalLinks) {
-      try {
-        const posts = await fetchSanityPosts();
-        sanityPostsToPass = posts.map((p) => ({
-          title: p.title,
-          slug: p.slug.current,
-          excerpt: p.excerpt,
-          category: p.category?.title,
-          publishedAt: p.publishedAt || p.updatedAt,
-        }));
-      } catch (e) {
-        console.error("Error fetching Sanity posts for internal links during edit:", e);
-      }
-    }
 
     const updatedContent = await editBlogPost(
       currentContent,
@@ -213,7 +270,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.targetAudience,
       state.description,
       viewLanguage, // Pass the specific language being edited
-      sanityPostsToPass
+      undefined
     );
 
     if (updatedContent) {
@@ -256,7 +313,18 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     const titleMatch = state.blogContent.match(/^#\s+(.*)/m);
     const title = state.blogTitle || (titleMatch ? titleMatch[1] : state.blogTopic || 'Untitled Blog Post');
 
-    const translationKey = `writer-${Date.now()}`;
+    const translationKeySeed =
+      state.blogSlug ||
+      state.blogSlugEN ||
+      title ||
+      state.blogTopic ||
+      `writer-${Date.now()}`;
+    const translationKey = translationKeySeed
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/(^-|-$)+/g, '');
 
     const trData = {
       title,
@@ -264,6 +332,12 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       description: state.blogDescription || '',
       slug: state.blogSlug || undefined,
       coverAltText: state.blogCoverAltText || undefined,
+      coverImageDataUrl: state.blogCoverUrl || undefined,
+      coverImagePrompt: state.blogCoverPrompt || undefined,
+      inlineImages: extractInlineImagePromptsFromContent(state.blogContent).map((prompt) => ({
+        prompt,
+        dataUrl: blogImages[prompt]?.url || undefined,
+      })),
     };
 
     let enData = undefined;
@@ -276,6 +350,12 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         description: state.blogDescriptionEN || '',
         slug: state.blogSlugEN || undefined,
         coverAltText: state.blogCoverAltTextEN || undefined,
+        coverImageDataUrl: state.blogCoverUrlEN || state.blogCoverUrl || undefined,
+        coverImagePrompt: state.blogCoverPromptEN || state.blogCoverPrompt || undefined,
+        inlineImages: extractInlineImagePromptsFromContent(state.blogContentEN).map((prompt) => ({
+          prompt,
+          dataUrl: blogImages[prompt]?.url || undefined,
+        })),
       };
     }
 
@@ -449,8 +529,11 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                 </div>
                 <h3 className="text-base font-semibold text-zinc-900 tracking-tight">No blog post generated</h3>
                 <p className="mt-2 text-sm text-zinc-500 leading-relaxed">Get started by setting your Product Context and clicking generate.</p>
-                {!geminiConfigured && (
-                  <p className="text-xs text-amber-600 mt-3">AI generate kapali. Lokal .env dosyana <code>GEMINI_API_KEY</code> ekle.</p>
+                {!openAiConfigured && (
+                  <p className="text-xs text-amber-600 mt-3">Blog metin uretimi kapali. Lokal .env dosyana <code>OPENAI_API_KEY</code> ekle.</p>
+                )}
+                {openAiConfigured && !geminiConfigured && (
+                  <p className="text-xs text-amber-600 mt-3">Metin uretimi acik. Gorseller icin <code>GEMINI_API_KEY</code> gerekli.</p>
                 )}
                 {(!state.productName && !state.blogTopic) && (
                   <p className="text-xs text-red-500 mt-3">Please set Product Context or Blog Topic first.</p>
@@ -683,11 +766,11 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                   onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
                   placeholder="Ask AI to edit... (e.g. 'Make the intro punchier', 'Add a section about pricing')"
                   className="flex-1 bg-white border border-indigo-100 rounded-xl px-4 py-2 text-sm focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 placeholder:text-indigo-300 text-indigo-900 shadow-sm"
-                  disabled={isEditing || !geminiConfigured}
+                  disabled={isEditing || !openAiConfigured}
                 />
                 <button
                   onClick={handleEdit}
-                  disabled={isEditing || !editInstruction.trim() || !geminiConfigured}
+                  disabled={isEditing || !editInstruction.trim() || !openAiConfigured}
                   className="px-4 py-2 bg-indigo-600 text-white text-sm font-medium rounded-xl hover:bg-indigo-700 disabled:opacity-50 transition-colors shrink-0 flex items-center gap-2 shadow-sm"
                 >
                   {isEditing ? (
@@ -782,7 +865,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                 {!socialPosts && (
                   <button
                     onClick={handleGenerateSocial}
-                    disabled={isGeneratingSocial || !geminiConfigured}
+                    disabled={isGeneratingSocial || !openAiConfigured}
                     className="text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md transition-colors disabled:opacity-50 flex items-center gap-1"
                   >
                     {isGeneratingSocial ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}

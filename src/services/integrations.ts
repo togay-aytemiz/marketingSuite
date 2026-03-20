@@ -1,4 +1,8 @@
 export interface IntegrationStatus {
+  openai: {
+    configured: boolean;
+    missing: string[];
+  };
   gemini: {
     configured: boolean;
     missing: string[];
@@ -17,6 +21,10 @@ export interface IntegrationStatus {
 }
 
 export const defaultIntegrationStatus: IntegrationStatus = {
+  openai: {
+    configured: false,
+    missing: ['OPENAI_API_KEY'],
+  },
   gemini: {
     configured: false,
     missing: ['GEMINI_API_KEY'],

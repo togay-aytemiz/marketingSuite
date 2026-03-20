@@ -960,14 +960,16 @@ ${language === 'TR' ? 'CRITICAL: You MUST use ONLY Turkish terminology in the co
 
 INSTRUCTIONS:
 1. ${isBoth ? "CRITICAL: You MUST generate the blog post in BOTH Turkish and English. Return a JSON object containing both the Turkish and English metadata and content." : "You must return a JSON object containing the blog metadata and the full markdown content."}
-2. "title": Write a compelling, click-worthy H1 title that is highly SEO-optimized.
+   TITLE LENGTH RULE: Every returned title field (title and titleEN when present) MUST be at most 70 characters.
+2. "title": Write a compelling, click-worthy H1 title that is highly SEO-optimized. CRITICAL: it MUST be at most 70 characters. If your first draft exceeds 70, rewrite it before returning JSON.
 3. "description": Write an SEO meta description. CRITICAL: It MUST be a maximum of 160 characters (ideally around 150) to improve SERP click-through rates.
 4. "slug": Generate a URL-friendly slug based on the title (e.g., "how-to-use-feature-x").
 5. "content": Write the full blog post in proper markdown format. Use H2 and H3 for subheadings. Use bullet points for lists. Add double line breaks between paragraphs. Naturally integrate the target/extracted keywords throughout the text.
 6. Quotes & External Links: Occasionally (but not excessively), include 1-2 external links to authoritative industry sources (e.g., Gartner, Forrester, or well-known industry blogs) to back up statistics or claims. You can format these as markdown links or blockquotes (>) for important quotes or key takeaways to enhance credibility and SEO. Format blockquotes exactly like this:
    > "This is a profound quote."
    > - Author Name
-7. FAQ Section & Schema: At the very end of the content, add a "Frequently Asked Questions" (or its Turkish equivalent if the language is Turkish) section formatted with an H2. Include 3-4 relevant questions and concise answers that naturally incorporate the SEO keywords to improve SERP real estate. Immediately after the visible FAQ section, include the corresponding JSON-LD FAQ schema markup inside a markdown code block (\`\`\`html) so the user can copy it for their website's head.
+7. FAQ Section: At the very end of the content, add a "Frequently Asked Questions" (or its Turkish equivalent if the language is Turkish) section formatted with an H2. Include 3-4 relevant questions and concise answers that naturally incorporate the SEO keywords.
+   CRITICAL: Do NOT include script tags, JSON-LD, HTML, or code blocks in the article body.
 8. Image Placeholders: Inside the "content" markdown, whenever an image would be beneficial to illustrate a point, insert a placeholder on a new line using EXACTLY this format: [IMAGE_PLACEHOLDER_X] (where X is an incrementing number starting from 1). Do NOT write the actual image prompt yet.
 Structure: Hook/Introduction, Main Body (with clear subheadings), Conclusion with a Call to Action (CTA), and finally the FAQ Section.
 ${internalLinksInstruction}
@@ -1253,7 +1255,8 @@ INSTRUCTIONS FOR REVISION:
    IMPORTANT: The image prompt MUST specify NOT to show software interfaces, UI mockups, or screenshots directly. It is acceptable to show people working on physical computers or screens, but the screen content itself should not be the focus. Focus on the people, the conceptual UI, or abstract representations.
 6. Ensure proper markdown formatting (H2, H3, bullet points) with double line breaks between paragraphs.
 7. Ensure any existing FAQ section or external links/quotes are preserved unless the user explicitly asks to remove them.
-8. Return ONLY the revised markdown content, with no meta-commentary.
+8. Do NOT include script tags, JSON-LD snippets, HTML blocks, or code fences in the final article body.
+9. Return ONLY the revised markdown content, with no meta-commentary.
 ${internalLinksInstruction}
 `;
 

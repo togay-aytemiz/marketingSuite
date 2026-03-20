@@ -315,10 +315,13 @@ function MainApp() {
         </div>
       </header>
 
-      {(!integrationStatus.gemini.configured || !integrationStatus.sanity.configured || !integrationStatus.qualy.configured) && (
+      {(!integrationStatus.openai.configured || !integrationStatus.gemini.configured || !integrationStatus.sanity.configured || !integrationStatus.qualy.configured) && (
         <div className="px-6 py-3 border-b border-amber-200 bg-amber-50 text-sm text-amber-900 space-y-1">
+          {!integrationStatus.openai.configured && (
+            <p>Blog metin ve strateji akisi kapali. <code>OPENAI_API_KEY</code> ekleyince acilir.</p>
+          )}
           {!integrationStatus.gemini.configured && (
-            <p>AI ozellikleri pasif. <code>GEMINI_API_KEY</code> ekledikten sonra generate islemleri acilir.</p>
+            <p>Gorsel uretimi kapali. <code>GEMINI_API_KEY</code> ekledikten sonra acilir.</p>
           )}
           {!integrationStatus.sanity.configured && (
             <p>Sanity fetch ve publish kapali. <code>SANITY_PROJECT_ID</code> ve <code>SANITY_TOKEN</code> eksik.</p>
@@ -374,7 +377,7 @@ function MainApp() {
         onClose={() => setIsSettingsOpen(false)} 
         state={state} 
         setState={setState} 
-        geminiConfigured={integrationStatus.gemini.configured}
+        aiTextConfigured={integrationStatus.openai.configured}
       />
 
       <SanitySettingsModal 

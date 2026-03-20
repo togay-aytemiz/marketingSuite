@@ -8,6 +8,17 @@ test('reports Gemini as unconfigured when no AI keys are present', () => {
 
   assert.equal(status.gemini.configured, false);
   assert.deepEqual(status.gemini.missing, ['GEMINI_API_KEY']);
+  assert.equal(status.openai.configured, false);
+  assert.deepEqual(status.openai.missing, ['OPENAI_API_KEY']);
+});
+
+test('reports OpenAI as configured when OPENAI_API_KEY is present', () => {
+  const status = getIntegrationStatus({
+    OPENAI_API_KEY: 'sk-test',
+  });
+
+  assert.equal(status.openai.configured, true);
+  assert.deepEqual(status.openai.missing, []);
 });
 
 test('accepts SANITY_API_TOKEN as a fallback token source', () => {

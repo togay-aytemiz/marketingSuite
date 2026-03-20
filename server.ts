@@ -7,20 +7,22 @@ import { createServer as createViteServer } from 'vite';
 import { fileURLToPath } from 'url';
 
 import {
+  extractColorPalette,
+  generateBlogImage,
+  generateFinalVisual,
+} from './src/server/gemini';
+import { getIntegrationStatus, loadLocalEnv } from './src/server/env';
+import {
   addInternalLinks,
   analyzeSeoForBlog,
   editBlogPost,
   enhanceProductDetails,
-  extractColorPalette,
-  generateBlogImage,
   generateBlogPost,
   generateCopyIdeas,
-  generateFinalVisual,
   generateMarketingCopy,
   generateSocialPosts,
   generateTopicIdeas,
-} from './src/server/gemini';
-import { getIntegrationStatus, loadLocalEnv } from './src/server/env';
+} from './src/server/openai';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity } from './src/server/sanity';
 import { getStrategyContextSnapshot } from './src/server/strategy-context';
 
@@ -138,18 +140,45 @@ async function startServer() {
   });
 
   app.post('/api/ai/:action', async (req, res) => {
+    const action = String(req.params.action || '');
     const status = getIntegrationStatus();
-    if (!status.gemini.configured) {
+
+    const geminiOnlyActions = new Set([
+      'extract-color-palette',
+      'generate-final-visual',
+      'generate-blog-image',
+    ]);
+
+    const openAiOnlyActions = new Set([
+      'enhance-product-details',
+      'generate-marketing-copy',
+      'generate-copy-ideas',
+      'generate-topic-ideas',
+      'analyze-seo-for-blog',
+      'generate-blog-post',
+      'add-internal-links',
+      'edit-blog-post',
+      'generate-social-posts',
+    ]);
+
+    if (geminiOnlyActions.has(action) && !status.gemini.configured) {
       return res.status(503).json({
         error: 'Gemini is not configured. Add GEMINI_API_KEY to .env.local before using AI actions.',
         missing: status.gemini.missing,
       });
     }
 
+    if (openAiOnlyActions.has(action) && !status.openai.configured) {
+      return res.status(503).json({
+        error: 'OpenAI is not configured. Add OPENAI_API_KEY to .env.local before using AI text actions.',
+        missing: status.openai.missing,
+      });
+    }
+
     try {
       let result: unknown;
 
-      switch (req.params.action) {
+      switch (action) {
         case 'enhance-product-details':
           result = await enhanceProductDetails(
             req.body.productName,
@@ -263,11 +292,11 @@ async function startServer() {
           result = await generateSocialPosts(req.body.blogContent, req.body.language);
           break;
         default:
-          return res.status(404).json({ error: `Unknown AI action: ${req.params.action}` });
+          return res.status(404).json({ error: `Unknown AI action: ${action}` });
       }
 
       if (result === null || typeof result === 'undefined') {
-        return res.status(502).json({ error: `AI action failed: ${req.params.action}` });
+        return res.status(502).json({ error: `AI action failed: ${action}` });
       }
 
       res.json({ result });

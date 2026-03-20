@@ -8,10 +8,10 @@ interface SettingsModalProps {
   onClose: () => void;
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
-  geminiConfigured: boolean;
+  aiTextConfigured: boolean;
 }
 
-export function SettingsModal({ isOpen, onClose, state, setState, geminiConfigured }: SettingsModalProps) {
+export function SettingsModal({ isOpen, onClose, state, setState, aiTextConfigured }: SettingsModalProps) {
   const [isEnhancing, setIsEnhancing] = useState(false);
 
   if (!isOpen) return null;
@@ -38,7 +38,7 @@ export function SettingsModal({ isOpen, onClose, state, setState, geminiConfigur
     setIsEnhancing(false);
   };
 
-  const canEnhance = geminiConfigured && state.description.trim().length > 0;
+  const canEnhance = aiTextConfigured && state.description.trim().length > 0;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 backdrop-blur-sm">
@@ -96,7 +96,7 @@ export function SettingsModal({ isOpen, onClose, state, setState, geminiConfigur
                   onClick={handleEnhance}
                   disabled={!canEnhance || isEnhancing}
                   className="flex items-center text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                  title={geminiConfigured ? 'Use AI to rewrite and improve this description' : 'Add GEMINI_API_KEY in .env.local to enable AI'}
+                  title={aiTextConfigured ? 'Use AI to rewrite and improve this description' : 'Add OPENAI_API_KEY in .env.local to enable AI'}
                 >
                   {isEnhancing ? (
                     <svg className="animate-spin mr-1 h-3 w-3 text-indigo-600" fill="none" viewBox="0 0 24 24">
@@ -117,8 +117,8 @@ export function SettingsModal({ isOpen, onClose, state, setState, geminiConfigur
                 className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 sm:text-sm resize-none transition-colors"
                 placeholder="Briefly describe what this feature or product does. The more detail you provide, the better the AI will understand your context."
               />
-              {!geminiConfigured && (
-                <p className="text-[11px] text-amber-600">AI enhancement kapali. Lokal .env dosyana <code>GEMINI_API_KEY</code> ekledikten sonra aktif olur.</p>
+              {!aiTextConfigured && (
+                <p className="text-[11px] text-amber-600">AI enhancement kapali. Lokal .env dosyana <code>OPENAI_API_KEY</code> ekledikten sonra aktif olur.</p>
               )}
             </div>
           </div>

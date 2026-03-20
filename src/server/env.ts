@@ -1,6 +1,10 @@
 import dotenv from 'dotenv';
 
 export interface IntegrationStatus {
+  openai: {
+    configured: boolean;
+    missing: string[];
+  };
   gemini: {
     configured: boolean;
     missing: string[];
@@ -30,6 +34,10 @@ export function getGeminiApiKey(env: NodeJS.ProcessEnv | Record<string, string |
   return env.GEMINI_API_KEY || env.API_KEY || null;
 }
 
+export function getOpenAiApiKey(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env) {
+  return env.OPENAI_API_KEY || null;
+}
+
 export function getSanityToken(env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env) {
   return env.SANITY_TOKEN || env.SANITY_API_TOKEN || env.SANITY_API_KEY || null;
 }
@@ -38,12 +46,17 @@ export function getIntegrationStatus(
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
 ): IntegrationStatus {
   const geminiKey = getGeminiApiKey(env);
+  const openAiKey = getOpenAiApiKey(env);
   const sanityProjectId = env.SANITY_PROJECT_ID || null;
   const sanityToken = getSanityToken(env);
   const sanityDataset = env.SANITY_DATASET || 'production';
   const sanityApiVersion = env.SANITY_API_VERSION || '2023-08-01';
 
   return {
+    openai: {
+      configured: Boolean(openAiKey),
+      missing: openAiKey ? [] : ['OPENAI_API_KEY'],
+    },
     gemini: {
       configured: Boolean(geminiKey),
       missing: geminiKey ? [] : ['GEMINI_API_KEY'],

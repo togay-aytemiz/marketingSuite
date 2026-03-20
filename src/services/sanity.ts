@@ -28,6 +28,12 @@ export interface PublishData {
   description?: string;
   slug?: string;
   coverAltText?: string;
+  coverImageDataUrl?: string;
+  coverImagePrompt?: string;
+  inlineImages?: Array<{
+    prompt: string;
+    dataUrl?: string;
+  }>;
 }
 
 export interface PublishToSanityResponse {
@@ -97,6 +103,9 @@ export const publishToSanity = async (
         description: data.tr.description || '',
         content: data.tr.content,
         coverAltText: data.tr.coverAltText || '',
+        coverImageDataUrl: data.tr.coverImageDataUrl || '',
+        coverImagePrompt: data.tr.coverImagePrompt || '',
+        inlineImages: Array.isArray(data.tr.inlineImages) ? data.tr.inlineImages : [],
       },
     };
 
@@ -107,6 +116,9 @@ export const publishToSanity = async (
         description: data.en.description || '',
         content: data.en.content,
         coverAltText: data.en.coverAltText || '',
+        coverImageDataUrl: data.en.coverImageDataUrl || '',
+        coverImagePrompt: data.en.coverImagePrompt || '',
+        inlineImages: Array.isArray(data.en.inlineImages) ? data.en.inlineImages : [],
       };
     }
 

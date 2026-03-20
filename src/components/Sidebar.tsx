@@ -3,7 +3,6 @@ import { AppState } from '../types';
 import { Upload, Image as ImageIcon, X, Settings, Info, ChevronDown, ChevronRight, Wand2, LayoutTemplate, Monitor, Smartphone, Linkedin, Loader2, Sparkles, Link as LinkIcon, PanelLeftClose, PanelLeftOpen, PenTool } from 'lucide-react';
 import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas } from '../services/gemini';
 import type { IntegrationStatus } from '../services/integrations';
-import { fetchSanityPosts } from '../services/sanity';
 
 const PRESETS = [
   {
@@ -51,6 +50,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   });
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
   const [topicIdeas, setTopicIdeas] = useState<{topic: string, keywords: string}[]>([]);
+  const openAiConfigured = integrationStatus.openai.configured;
   const geminiConfigured = integrationStatus.gemini.configured;
   const sanityConfigured = integrationStatus.sanity.configured;
 
@@ -173,29 +173,6 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   const handleGenerateTopics = async () => {
     setIsGeneratingTopics(true);
 
-    let recentPostTitles: string[] = [];
-    let recentPosts: { title: string; excerpt?: string; category?: string; publishedAt?: string }[] = [];
-    try {
-      const posts = await fetchSanityPosts();
-      if (posts.length > 0) {
-        const sorted = [...posts].sort((a, b) => {
-          const bDate = Date.parse(b.publishedAt || b.updatedAt || '') || 0;
-          const aDate = Date.parse(a.publishedAt || a.updatedAt || '') || 0;
-          return bDate - aDate;
-        });
-
-        recentPosts = sorted.slice(0, 20).map((post) => ({
-          title: post.title,
-          excerpt: post.excerpt,
-          category: post.category?.title,
-          publishedAt: post.publishedAt || post.updatedAt,
-        }));
-        recentPostTitles = recentPosts.map((post) => post.title);
-      }
-    } catch (e) {
-      console.error("Error fetching Sanity posts for topic generation:", e);
-    }
-
     const newIdeas = await generateTopicIdeas(
       state.productName,
       state.featureName,
@@ -203,8 +180,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       state.description,
       state.language,
       topicIdeas.map((idea) => idea.topic),
-      recentPosts,
-      recentPostTitles
+      [],
+      []
     );
 
     if (newIdeas) {
@@ -280,9 +257,9 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     <label className="block text-[11px] font-medium text-zinc-500">Topic / Instruction</label>
                     <button
                       onClick={handleGenerateTopics}
-                      disabled={isGeneratingTopics || !geminiConfigured || (!state.productName && !state.description)}
+                      disabled={isGeneratingTopics || !openAiConfigured || (!state.productName && !state.description)}
                       className="flex items-center text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={geminiConfigured ? 'AI will suggest 5 topics based on Product Context' : 'Add GEMINI_API_KEY in .env.local to enable brainstorming'}
+                      title={openAiConfigured ? 'AI will suggest 5 topics based on Product Context' : 'Add OPENAI_API_KEY in .env.local to enable brainstorming'}
                     >
                       {isGeneratingTopics ? (
                         <svg className="animate-spin mr-1 h-3 w-3 text-indigo-600" fill="none" viewBox="0 0 24 24">
@@ -349,8 +326,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     placeholder="AI will auto-extract from Product Context"
                   />
                 </div>
-                {!geminiConfigured && (
-                  <p className="text-[10px] text-amber-600 leading-relaxed">Blog brainstorming ve writer generate islemleri icin <code>GEMINI_API_KEY</code> gerekli.</p>
+                {!openAiConfigured && (
+                  <p className="text-[10px] text-amber-600 leading-relaxed">Blog brainstorming ve writer generate islemleri icin <code>OPENAI_API_KEY</code> gerekli.</p>
                 )}
               </div>
             )}
@@ -451,7 +428,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                   </div>
                   <p className="text-[10px] text-zinc-500 mt-1.5 leading-relaxed">
                     {sanityConfigured
-                      ? 'If Sanity is configured, AI will fetch recent posts and naturally integrate relevant internal links into the generated content.'
+                      ? 'Manual "Add Internal Links" adiminda Sanity post havuzu kullanilabilir.'
                       : 'Sanity bagli degilse internal link havuzu bos kalir; publish ve post fetch icin once Sanity env degiskenlerini gir.'}
                   </p>
                 </div>
@@ -463,7 +440,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
         <div className="p-4 border-t border-zinc-100 bg-white flex gap-2">
           <button
             onClick={onGenerate}
-            disabled={isGenerating || !geminiConfigured || (!state.productName && !state.blogTopic)}
+            disabled={isGenerating || !openAiConfigured || (!state.productName && !state.blogTopic)}
             className="flex-1 flex items-center justify-center px-4 py-3 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
@@ -621,10 +598,10 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
             </button>
             <button
               onClick={handleGenerateCopy}
-              disabled={isGeneratingCopy || isProductDetailsEmpty || !geminiConfigured}
+              disabled={isGeneratingCopy || isProductDetailsEmpty || !openAiConfigured}
               title={
-                !geminiConfigured
-                  ? 'Add GEMINI_API_KEY in .env.local to enable AI'
+                !openAiConfigured
+                  ? 'Add OPENAI_API_KEY in .env.local to enable AI'
                   : isProductDetailsEmpty
                     ? 'Please enter Product Details in Settings first'
                     : 'Generate AI ideas'
