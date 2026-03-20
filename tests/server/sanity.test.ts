@@ -50,11 +50,15 @@ test('normalizes post slugs from string fields', () => {
     excerpt: 'Example excerpt',
     language: 'tr',
     translationKey: 'writer-1',
+    publishedAt: '2026-03-19T09:00:00.000Z',
+    _updatedAt: '2026-03-19T10:00:00.000Z',
   });
 
   assert.equal(post.title, 'A Blog Post');
   assert.deepEqual(post.slug, { current: 'a-blog-post' });
   assert.equal(post.language, 'tr');
+  assert.equal(post.publishedAt, '2026-03-19T09:00:00.000Z');
+  assert.equal(post.updatedAt, '2026-03-19T10:00:00.000Z');
 });
 
 test('builds stable post document ids from translation key and language', () => {

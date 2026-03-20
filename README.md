@@ -59,6 +59,24 @@ With Sanity configured, the app can:
 - fetch existing posts for internal links and topic avoidance
 - publish TR and EN blog entries
 
+### Strategy Context Auto-Discovery (Leadqualifier / Qualy)
+
+Blog topic and blog writing prompts automatically try to load product strategy context from nearby docs:
+
+- `../leadqualifier/docs/PRD.md` + `../leadqualifier/docs/ROADMAP.md`
+- `~/Desktop/leadqualifier/docs/PRD.md` + `~/Desktop/leadqualifier/docs/ROADMAP.md`
+- fallback: `../Qualy-lp/docs/PRD.md` + `../Qualy-lp/docs/ROADMAP.md`
+
+When found, the app injects extracted update notes, in-scope features, and roadmap highlights into AI prompts. This keeps topic suggestions and generated posts aligned with real product capabilities.
+
+You can inspect what was detected via:
+
+```bash
+curl http://localhost:3000/api/strategy/context
+```
+
+Blog internal-link prompts now also rank Sanity posts by relevance + recency, so links are biased toward the most suitable Qualy blog articles instead of random matches.
+
 ### Optional Qualy Auto-Refresh
 
 - `QUALY_LP_PATH`

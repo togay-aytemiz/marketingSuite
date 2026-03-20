@@ -19,6 +19,8 @@ export interface NormalizedSanityPost {
   language?: string;
   translationKey?: string;
   bodyMarkdown?: string;
+  publishedAt?: string;
+  updatedAt?: string;
   category?: {
     _id?: string;
     title?: string;
@@ -240,6 +242,8 @@ export function normalizeSanityPost(doc: Record<string, unknown>): NormalizedSan
     language: doc.language ? String(doc.language) : undefined,
     translationKey: doc.translationKey ? String(doc.translationKey) : undefined,
     bodyMarkdown: doc.bodyMarkdown ? String(doc.bodyMarkdown) : undefined,
+    publishedAt: doc.publishedAt ? String(doc.publishedAt) : undefined,
+    updatedAt: doc._updatedAt ? String(doc._updatedAt) : undefined,
     category: category
       ? {
           _id: category._id ? String(category._id) : undefined,
@@ -272,6 +276,8 @@ function buildPostQuery() {
     language,
     translationKey,
     bodyMarkdown,
+    publishedAt,
+    _updatedAt,
     "category": category->{
       _id,
       title,

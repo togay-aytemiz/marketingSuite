@@ -1,5 +1,287 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getGeminiApiKey } from "./env";
+import { getStrategyContextSnapshot } from "./strategy-context";
+
+export interface SanityPostReference {
+  title: string;
+  slug: string;
+  excerpt?: string;
+  category?: string;
+  publishedAt?: string;
+}
+
+export interface RecentTopicReference {
+  title: string;
+  excerpt?: string;
+  category?: string;
+  publishedAt?: string;
+}
+
+const RELEVANCE_STOP_WORDS = new Set([
+  "about",
+  "after",
+  "again",
+  "also",
+  "and",
+  "are",
+  "but",
+  "for",
+  "from",
+  "into",
+  "its",
+  "that",
+  "the",
+  "their",
+  "there",
+  "this",
+  "with",
+  "your",
+  "blog",
+  "post",
+  "guide",
+  "tips",
+  "update",
+  "news",
+  "best",
+  "how",
+  "what",
+  "when",
+  "where",
+  "which",
+  "who",
+  "ve",
+  "ile",
+  "icin",
+  "için",
+  "gibi",
+  "daha",
+  "nasil",
+  "nasil",
+  "blog",
+  "yazi",
+  "yazı",
+  "rehber",
+]);
+
+function normalizeWhitespace(value: string) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+function parseDateScore(value?: string) {
+  if (!value) {
+    return null;
+  }
+
+  const dateMs = Date.parse(value);
+  if (Number.isNaN(dateMs)) {
+    return null;
+  }
+
+  return dateMs;
+}
+
+function tokenizeForRelevance(value: string) {
+  const normalized = value
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9\s]/g, " ")
+    .replace(/\s+/g, " ");
+
+  return normalized
+    .split(" ")
+    .map((token) => token.trim())
+    .filter((token) => token.length >= 3 && !RELEVANCE_STOP_WORDS.has(token));
+}
+
+function dedupePostsBySlug(posts: SanityPostReference[]) {
+  const bySlug = new Map<string, SanityPostReference>();
+
+  for (const post of posts) {
+    const slug = normalizeWhitespace(post.slug || "");
+    const title = normalizeWhitespace(post.title || "");
+    if (!slug || !title) {
+      continue;
+    }
+
+    const existing = bySlug.get(slug);
+    if (!existing) {
+      bySlug.set(slug, { ...post, slug, title });
+      continue;
+    }
+
+    const existingDate = parseDateScore(existing.publishedAt);
+    const incomingDate = parseDateScore(post.publishedAt);
+
+    if (incomingDate !== null && (existingDate === null || incomingDate > existingDate)) {
+      bySlug.set(slug, { ...post, slug, title });
+    }
+  }
+
+  return Array.from(bySlug.values());
+}
+
+export function selectRelevantSanityPosts(
+  posts: SanityPostReference[],
+  seedText: string,
+  maxItems = 12
+): SanityPostReference[] {
+  const dedupedPosts = dedupePostsBySlug(posts);
+  if (dedupedPosts.length === 0) {
+    return [];
+  }
+
+  const seedTokens = new Set(tokenizeForRelevance(seedText));
+  const timestamps = dedupedPosts
+    .map((post) => parseDateScore(post.publishedAt))
+    .filter((value): value is number => value !== null);
+  const minTimestamp = timestamps.length > 0 ? Math.min(...timestamps) : null;
+  const maxTimestamp = timestamps.length > 0 ? Math.max(...timestamps) : null;
+
+  const scored = dedupedPosts.map((post) => {
+    const searchable = `${post.title} ${post.excerpt || ""} ${post.category || ""}`;
+    const postTokens = new Set(tokenizeForRelevance(searchable));
+    let overlapScore = 0;
+
+    for (const token of seedTokens) {
+      if (postTokens.has(token)) {
+        overlapScore += 1;
+      }
+    }
+
+    const postDate = parseDateScore(post.publishedAt);
+    let recencyBonus = 0;
+    if (postDate !== null && minTimestamp !== null && maxTimestamp !== null && maxTimestamp !== minTimestamp) {
+      recencyBonus = ((postDate - minTimestamp) / (maxTimestamp - minTimestamp)) * 2;
+    }
+
+    const finalScore = overlapScore * 3 + recencyBonus;
+
+    return {
+      post,
+      finalScore,
+      postDate: postDate || 0,
+    };
+  });
+
+  scored.sort((a, b) => {
+    if (b.finalScore !== a.finalScore) {
+      return b.finalScore - a.finalScore;
+    }
+
+    if (b.postDate !== a.postDate) {
+      return b.postDate - a.postDate;
+    }
+
+    return a.post.title.localeCompare(b.post.title);
+  });
+
+  return scored.slice(0, maxItems).map((item) => item.post);
+}
+
+function formatDateForPrompt(value?: string) {
+  if (!value) {
+    return "unknown-date";
+  }
+
+  const parsed = Date.parse(value);
+  if (Number.isNaN(parsed)) {
+    return "unknown-date";
+  }
+
+  return new Date(parsed).toISOString().slice(0, 10);
+}
+
+function buildRecentPostsInstruction(recentPosts: RecentTopicReference[], fallbackTitles: string[], maxItems = 12) {
+  const enriched = recentPosts
+    .map((post) => ({
+      title: normalizeWhitespace(post.title || ""),
+      excerpt: normalizeWhitespace(post.excerpt || ""),
+      category: normalizeWhitespace(post.category || ""),
+      publishedAt: post.publishedAt,
+      scoreDate: parseDateScore(post.publishedAt) || 0,
+    }))
+    .filter((post) => post.title);
+
+  const deduped = new Map<string, (typeof enriched)[number]>();
+  for (const post of enriched) {
+    const existing = deduped.get(post.title.toLowerCase());
+    if (!existing || post.scoreDate > existing.scoreDate) {
+      deduped.set(post.title.toLowerCase(), post);
+    }
+  }
+
+  const normalizedTitles = fallbackTitles
+    .map((title) => normalizeWhitespace(title))
+    .filter(Boolean)
+    .map((title) => ({
+      title,
+      excerpt: "",
+      category: "",
+      publishedAt: undefined,
+      scoreDate: 0,
+    }));
+
+  for (const titlePost of normalizedTitles) {
+    if (!deduped.has(titlePost.title.toLowerCase())) {
+      deduped.set(titlePost.title.toLowerCase(), titlePost);
+    }
+  }
+
+  const sorted = Array.from(deduped.values())
+    .sort((a, b) => b.scoreDate - a.scoreDate)
+    .slice(0, maxItems);
+
+  if (sorted.length === 0) {
+    return "";
+  }
+
+  const lines = sorted.map((post) => {
+    const bits = [`[${formatDateForPrompt(post.publishedAt)}] ${post.title}`];
+    if (post.category) {
+      bits.push(`category: ${post.category}`);
+    }
+    if (post.excerpt) {
+      bits.push(`summary: ${post.excerpt.slice(0, 140)}`);
+    }
+    return `- ${bits.join(" | ")}`;
+  });
+
+  return `
+RECENT SANITY BLOG TOPICS (latest first):
+${lines.join("\n")}
+
+IMPORTANT: Suggest adjacent or next-step angles that are clearly different from the recent topics above.
+`;
+}
+
+function buildStrategyContextInstruction() {
+  const context = getStrategyContextSnapshot();
+  if (!context.available || !context.promptText) {
+    return "";
+  }
+
+  return `
+PRODUCT STRATEGY CONTEXT (from PRD/ROADMAP docs):
+${context.promptText}
+
+IMPORTANT: Align suggestions/content with this strategy context and current shipped capabilities.
+`;
+}
+
+function buildInternalLinksInstruction(posts: SanityPostReference[]) {
+  if (posts.length === 0) {
+    return "";
+  }
+
+  const lines = posts.map((post) => `- Title: "${post.title}", URL: "/blog/${post.slug}"`).join("\n");
+
+  return `
+9. Internal Linking: You MUST naturally integrate 1-3 internal links to the following available blog posts. Use markdown link syntax: [anchor text](/blog/slug-of-the-post). Do NOT force links, only add them if the context is highly relevant.
+Available Internal Blog Posts:
+${lines}
+`;
+}
 
 export function getAiInstance() {
   const apiKey = getGeminiApiKey();
@@ -611,7 +893,7 @@ export const generateBlogPost = async (
   length: string,
   language: string,
   imageStyle: string,
-  sanityPosts?: { title: string; slug: string }[],
+  sanityPosts?: SanityPostReference[],
   sanityCategories?: { id: string; name: string }[]
 ): Promise<BlogPostResponse | null> => {
   const ai = getAiInstance();
@@ -619,15 +901,33 @@ export const generateBlogPost = async (
 
   const isBoth = language === 'BOTH';
   const targetLang = isBoth ? 'Turkish (Primary) and English (Secondary)' : (language === 'TR' ? 'Turkish' : 'English');
+  const strategyContextInstruction = buildStrategyContextInstruction();
+
+  const recentTopicRows = (sanityPosts || [])
+    .filter((post) => normalizeWhitespace(post.title || '') && normalizeWhitespace(post.slug || ''))
+    .sort((a, b) => {
+      const bDate = parseDateScore(b.publishedAt) || 0;
+      const aDate = parseDateScore(a.publishedAt) || 0;
+      return bDate - aDate;
+    })
+    .slice(0, 12)
+    .map((post) => `- [${formatDateForPrompt(post.publishedAt)}] ${post.title}`);
+
+  const recentTopicsInstruction = recentTopicRows.length > 0
+    ? `
+LATEST SANITY BLOG TOPICS (avoid repeating the same angle):
+${recentTopicRows.join('\n')}
+`
+    : '';
 
   let internalLinksInstruction = '';
   if (sanityPosts && sanityPosts.length > 0) {
-    const postsList = sanityPosts.map(p => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
-    internalLinksInstruction = `
-9. Internal Linking: You MUST naturally integrate 1-3 internal links to the following available blog posts. Use markdown link syntax: [anchor text](/blog/slug-of-the-post). Do NOT force links, only add them if the context is highly relevant.
-Available Internal Blog Posts:
-${postsList}
-`;
+    const rankedPosts = selectRelevantSanityPosts(
+      sanityPosts,
+      `${topic} ${keywords} ${featureName} ${targetAudience} ${description}`,
+      14
+    );
+    internalLinksInstruction = buildInternalLinksInstruction(rankedPosts);
   }
 
   let categoriesInstruction = '';
@@ -647,6 +947,8 @@ Product Name: ${productName || 'Our Product'}
 Feature/Focus Area: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
+${strategyContextInstruction}
+${recentTopicsInstruction}
 
 BLOG POST REQUIREMENTS:
 Topic/Instruction: ${topic || 'The user did not provide a specific topic. Please invent a highly relevant and engaging topic based on the Product Context.'}
@@ -841,18 +1143,25 @@ export const generateBlogImage = async (prompt: string, isCover: boolean = false
 
 export const addInternalLinks = async (
   currentContent: string,
-  sanityPosts: { title: string; slug: string }[],
+  sanityPosts: SanityPostReference[],
   language: string
 ): Promise<string | null> => {
   const ai = getAiInstance();
   if (!ai) return null;
 
-  const postsList = sanityPosts.map(p => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
+  const strategyContextInstruction = buildStrategyContextInstruction();
+  const selectedPosts = selectRelevantSanityPosts(sanityPosts, currentContent, 16);
+  if (selectedPosts.length === 0) {
+    return currentContent;
+  }
+
+  const postsList = selectedPosts.map((p) => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
 
   const prompt = `
 You are an expert SEO content editor. Your task is to naturally integrate internal links into the following blog post.
 
 Language: ${language === 'TR' ? 'Turkish' : 'English'}
+${strategyContextInstruction}
 
 Available Internal Blog Posts:
 ${postsList}
@@ -894,19 +1203,27 @@ export const editBlogPost = async (
   targetAudience: string,
   description: string,
   language: string,
-  sanityPosts?: { title: string; slug: string }[]
+  sanityPosts?: SanityPostReference[]
 ): Promise<string | null> => {
   const ai = getAiInstance();
   if (!ai) return null;
+  const strategyContextInstruction = buildStrategyContextInstruction();
 
   let internalLinksInstruction = '';
   if (sanityPosts && sanityPosts.length > 0) {
-    const postsList = sanityPosts.map(p => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
-    internalLinksInstruction = `
+    const selectedPosts = selectRelevantSanityPosts(
+      sanityPosts,
+      `${currentContent}\n${instruction}\n${featureName}\n${description}`,
+      14
+    );
+    if (selectedPosts.length > 0) {
+      const postsList = selectedPosts.map((p) => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
+      internalLinksInstruction = `
 8. Internal Linking: If your edits involve adding new sections or rewriting, try to naturally integrate internal links to the following available blog posts. Use markdown link syntax: [anchor text](/blog/slug-of-the-post).
 Available Internal Blog Posts:
 ${postsList}
 `;
+    }
   }
 
   const prompt = `You are an expert SEO copywriter and editor. Your task is to revise an existing blog post based on the user's specific instructions.
@@ -917,6 +1234,7 @@ Feature/Focus Area: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
 Language: ${language === 'TR' ? 'Turkish' : 'English'}
+${strategyContextInstruction}
 
 CURRENT BLOG POST:
 """
@@ -1013,15 +1331,15 @@ export const generateTopicIdeas = async (
   description: string,
   language: string,
   existingTopics: string[] = [],
+  recentPosts: RecentTopicReference[] = [],
   recentPostTitles: string[] = []
 ): Promise<{ topic: string; keywords: string }[] | null> => {
   const ai = getAiInstance();
   if (!ai) return null;
+  const strategyContextInstruction = buildStrategyContextInstruction();
+  const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, recentPostTitles, 15);
 
   const existingTopicsInstruction = [
-    recentPostTitles.length > 0
-      ? `IMPORTANT: Do NOT suggest topics that are too similar to these recently published posts:\n${recentPostTitles.map((title) => `- ${title}`).join('\n')}`
-      : '',
     existingTopics.length > 0
       ? `ALSO IMPORTANT: Do NOT suggest topics that are too similar to these already generated ideas:\n${existingTopics.map((topic) => `- ${topic}`).join('\n')}`
       : '',
@@ -1038,6 +1356,8 @@ export const generateTopicIdeas = async (
     Target Audience: ${targetAudience || 'Not provided'}
     Description: ${description || 'Not provided'}
     Language: ${language === 'TR' ? 'Turkish' : 'English'}
+    ${strategyContextInstruction}
+    ${recentPostsInstruction}
     ${existingTopicsInstruction}
 
     ${language === 'TR' ? 'CRITICAL: You MUST use ONLY Turkish terminology. Do NOT use English marketing jargon like "lead", "lead scoring", "conversion", "engagement", etc. Use their exact Turkish equivalents (e.g., "Müşteri Adayı", "Müşteri Adayı Puanlama", "Dönüşüm", "Etkileşim").' : ''}

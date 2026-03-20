@@ -6,6 +6,8 @@ export interface SanityPost {
   language?: string;
   translationKey?: string;
   bodyMarkdown?: string;
+  publishedAt?: string;
+  updatedAt?: string;
   category?: {
     _id?: string;
     title?: string;

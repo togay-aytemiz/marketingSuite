@@ -174,10 +174,23 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setIsGeneratingTopics(true);
 
     let recentPostTitles: string[] = [];
+    let recentPosts: { title: string; excerpt?: string; category?: string; publishedAt?: string }[] = [];
     try {
       const posts = await fetchSanityPosts();
       if (posts.length > 0) {
-        recentPostTitles = posts.map((post) => post.title);
+        const sorted = [...posts].sort((a, b) => {
+          const bDate = Date.parse(b.publishedAt || b.updatedAt || '') || 0;
+          const aDate = Date.parse(a.publishedAt || a.updatedAt || '') || 0;
+          return bDate - aDate;
+        });
+
+        recentPosts = sorted.slice(0, 20).map((post) => ({
+          title: post.title,
+          excerpt: post.excerpt,
+          category: post.category?.title,
+          publishedAt: post.publishedAt || post.updatedAt,
+        }));
+        recentPostTitles = recentPosts.map((post) => post.title);
       }
     } catch (e) {
       console.error("Error fetching Sanity posts for topic generation:", e);
@@ -190,6 +203,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       state.description,
       state.language,
       topicIdeas.map((idea) => idea.topic),
+      recentPosts,
       recentPostTitles
     );
 

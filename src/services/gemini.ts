@@ -18,6 +18,21 @@ export interface BlogPostResponse {
   contentEN?: string;
 }
 
+export interface SanityPostReference {
+  title: string;
+  slug: string;
+  excerpt?: string;
+  category?: string;
+  publishedAt?: string;
+}
+
+export interface RecentTopicReference {
+  title: string;
+  excerpt?: string;
+  category?: string;
+  publishedAt?: string;
+}
+
 async function readApiError(response: Response) {
   try {
     const payload = await response.json();
@@ -180,7 +195,7 @@ export const generateBlogPost = async (
   length: string,
   language: string,
   imageStyle: string,
-  sanityPosts?: { title: string; slug: string }[],
+  sanityPosts?: SanityPostReference[],
   sanityCategories?: { id: string; name: string }[]
 ): Promise<BlogPostResponse | null> =>
   postAiAction<BlogPostResponse>('generate-blog-post', {
@@ -206,7 +221,7 @@ export const generateBlogImage = async (prompt: string, isCover: boolean = false
 
 export const addInternalLinks = async (
   currentContent: string,
-  sanityPosts: { title: string; slug: string }[],
+  sanityPosts: SanityPostReference[],
   language: string
 ): Promise<string | null> =>
   postAiAction<string>('add-internal-links', {
@@ -223,7 +238,7 @@ export const editBlogPost = async (
   targetAudience: string,
   description: string,
   language: string,
-  sanityPosts?: { title: string; slug: string }[]
+  sanityPosts?: SanityPostReference[]
 ): Promise<string | null> =>
   postAiAction<string>('edit-blog-post', {
     currentContent,
@@ -252,6 +267,7 @@ export const generateTopicIdeas = async (
   description: string,
   language: string,
   existingTopics: string[] = [],
+  recentPosts: RecentTopicReference[] = [],
   recentPostTitles: string[] = []
 ): Promise<{ topic: string; keywords: string }[] | null> =>
   postAiAction<{ topic: string; keywords: string }[]>('generate-topic-ideas', {
@@ -261,5 +277,6 @@ export const generateTopicIdeas = async (
     description,
     language,
     existingTopics,
+    recentPosts,
     recentPostTitles,
   });

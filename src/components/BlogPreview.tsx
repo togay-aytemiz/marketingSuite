@@ -68,13 +68,19 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     setIsGenerating(true);
     setState(prev => ({ ...prev, blogContent: null, blogContentEN: null, seoAnalysis: null, seoAnalysisEN: null }));
     
-    let sanityPostsToPass: { title: string; slug: string }[] | undefined = undefined;
+    let sanityPostsToPass: { title: string; slug: string; excerpt?: string; category?: string; publishedAt?: string }[] | undefined = undefined;
     let sanityCategoriesToPass: { id: string; name: string }[] | undefined = undefined;
 
     try {
       if (state.autoInternalLinks) {
         const posts = await fetchSanityPosts();
-        sanityPostsToPass = posts.map(p => ({ title: p.title, slug: p.slug.current }));
+        sanityPostsToPass = posts.map((p) => ({
+          title: p.title,
+          slug: p.slug.current,
+          excerpt: p.excerpt,
+          category: p.category?.title,
+          publishedAt: p.publishedAt || p.updatedAt,
+        }));
       }
       const categories = await fetchSanityCategories(state.language === 'EN' ? 'en' : 'tr');
       sanityCategoriesToPass = categories.map(c => ({ id: c._id, name: c.title }));
@@ -183,11 +189,17 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     if (!editInstruction.trim() || !currentContent || !geminiConfigured) return;
     setIsEditing(true);
 
-    let sanityPostsToPass: { title: string; slug: string }[] | undefined = undefined;
+    let sanityPostsToPass: { title: string; slug: string; excerpt?: string; category?: string; publishedAt?: string }[] | undefined = undefined;
     if (state.autoInternalLinks) {
       try {
         const posts = await fetchSanityPosts();
-        sanityPostsToPass = posts.map(p => ({ title: p.title, slug: p.slug.current }));
+        sanityPostsToPass = posts.map((p) => ({
+          title: p.title,
+          slug: p.slug.current,
+          excerpt: p.excerpt,
+          category: p.category?.title,
+          publishedAt: p.publishedAt || p.updatedAt,
+        }));
       } catch (e) {
         console.error("Error fetching Sanity posts for internal links during edit:", e);
       }
@@ -308,7 +320,17 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       return;
     }
 
-    const updatedContent = await addInternalLinks(currentContent, posts.map(p => ({ title: p.title, slug: p.slug.current })), viewLanguage);
+    const updatedContent = await addInternalLinks(
+      currentContent,
+      posts.map((p) => ({
+        title: p.title,
+        slug: p.slug.current,
+        excerpt: p.excerpt,
+        category: p.category?.title,
+        publishedAt: p.publishedAt || p.updatedAt,
+      })),
+      viewLanguage
+    );
     
     if (updatedContent) {
       setState(prev => ({

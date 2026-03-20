@@ -1,0 +1,63 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+
+import { selectRelevantSanityPosts } from '../../src/server/gemini';
+
+test('selects relevant sanity posts by overlap and recency', () => {
+  const selected = selectRelevantSanityPosts(
+    [
+      {
+        title: 'Instagram Request Badge Logic',
+        slug: 'instagram-request-badge',
+        excerpt: 'How request classification works in Inbox',
+        publishedAt: '2026-03-19T09:00:00.000Z',
+      },
+      {
+        title: 'Calendar Booking Rules',
+        slug: 'calendar-booking-rules',
+        excerpt: 'Business hours and minimum notice',
+        publishedAt: '2026-03-18T09:00:00.000Z',
+      },
+      {
+        title: 'Generic Product Update',
+        slug: 'generic-update',
+        excerpt: 'A broad update post',
+        publishedAt: '2026-01-10T09:00:00.000Z',
+      },
+    ],
+    'instagram webhook request inbox handoff strategy',
+    2
+  );
+
+  assert.equal(selected.length, 2);
+  assert.equal(selected[0]?.slug, 'instagram-request-badge');
+});
+
+test('deduplicates posts by slug while ranking relevance', () => {
+  const selected = selectRelevantSanityPosts(
+    [
+      {
+        title: 'WhatsApp Template Guide',
+        slug: 'whatsapp-template-guide',
+        publishedAt: '2026-03-10T09:00:00.000Z',
+      },
+      {
+        title: 'WhatsApp Template Guide (Duplicate)',
+        slug: 'whatsapp-template-guide',
+        publishedAt: '2026-03-11T09:00:00.000Z',
+      },
+      {
+        title: 'Lead Qualification Checklist',
+        slug: 'lead-qualification-checklist',
+        publishedAt: '2026-03-09T09:00:00.000Z',
+      },
+    ],
+    'whatsapp templates and response windows',
+    10
+  );
+
+  const slugs = selected.map((post) => post.slug);
+  const uniqueSlugCount = new Set(slugs).size;
+  assert.equal(slugs.length, uniqueSlugCount);
+  assert.equal(slugs[0], 'whatsapp-template-guide');
+});

@@ -22,6 +22,7 @@ import {
 } from './src/server/gemini';
 import { getIntegrationStatus, loadLocalEnv } from './src/server/env';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity } from './src/server/sanity';
+import { getStrategyContextSnapshot } from './src/server/strategy-context';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -97,6 +98,10 @@ async function startServer() {
 
   app.get('/api/integrations/status', (_req, res) => {
     res.json(getStatusPayload());
+  });
+
+  app.get('/api/strategy/context', (_req, res) => {
+    res.json(getStrategyContextSnapshot());
   });
 
   app.get('/api/sanity/categories', async (req, res) => {
@@ -208,6 +213,7 @@ async function startServer() {
             req.body.description,
             req.body.language,
             req.body.existingTopics || [],
+            req.body.recentPosts || [],
             req.body.recentPostTitles || []
           );
           break;
