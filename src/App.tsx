@@ -3,11 +3,18 @@ import { Sidebar } from './components/Sidebar';
 import { VisualPreview } from './components/VisualPreview';
 import { BlogPreview } from './components/BlogPreview';
 import { SettingsModal } from './components/SettingsModal';
-import { SanitySettingsModal } from './components/SanitySettingsModal';
+import { IntegrationSettingsModal } from './components/SanitySettingsModal';
 import { AppState, defaultState } from './types';
 import { extractColorPalette, generateMarketingCopy, generateFinalVisual } from './services/gemini';
 import { Settings, PenTool, Image as ImageIcon, Database } from 'lucide-react';
-import { defaultIntegrationStatus, fetchIntegrationStatus, IntegrationStatus } from './services/integrations';
+import {
+  checkIntegrationEndpoints,
+  defaultIntegrationStatus,
+  fetchIntegrationStatus,
+  IntegrationEndpointCheck,
+  IntegrationStatus,
+} from './services/integrations';
+import { syncSanityCategories } from './services/sanity';
 
 export default function App() {
   return <MainApp />;
@@ -67,10 +74,14 @@ function MainApp() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState<boolean[]>([false, false, false, false]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [isSanitySettingsOpen, setIsSanitySettingsOpen] = useState(false);
+  const [isIntegrationSettingsOpen, setIsIntegrationSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
   const [triggerBlogGen, setTriggerBlogGen] = useState(0);
   const [integrationStatus, setIntegrationStatus] = useState<IntegrationStatus>(defaultIntegrationStatus);
+  const [isRefreshingIntegrationStatus, setIsRefreshingIntegrationStatus] = useState(false);
+  const [integrationEndpointChecks, setIntegrationEndpointChecks] = useState<IntegrationEndpointCheck[]>([]);
+  const [isSyncingCategories, setIsSyncingCategories] = useState(false);
+  const [categorySyncStatus, setCategorySyncStatus] = useState<string | null>(null);
 
   const loadStatus = async () => {
     try {
@@ -78,6 +89,46 @@ function MainApp() {
       setIntegrationStatus(nextStatus);
     } catch (error) {
       console.error('Failed to load integration status:', error);
+    }
+  };
+
+  const refreshStatusWithChecks = async () => {
+    setIsRefreshingIntegrationStatus(true);
+    try {
+      const nextStatus = await fetchIntegrationStatus();
+      setIntegrationStatus(nextStatus);
+      const checks = await checkIntegrationEndpoints();
+      setIntegrationEndpointChecks(checks);
+    } catch (error) {
+      console.error('Failed to refresh integration status:', error);
+      setIntegrationEndpointChecks([
+        {
+          key: 'refresh-failed',
+          label: 'Status Refresh',
+          endpoint: '/api/integrations/status',
+          ok: false,
+          status: null,
+          message: error instanceof Error ? error.message : 'Unknown error',
+        },
+      ]);
+    } finally {
+      setIsRefreshingIntegrationStatus(false);
+    }
+  };
+
+  const handleSyncSanityCategories = async () => {
+    setIsSyncingCategories(true);
+    setCategorySyncStatus(null);
+    try {
+      const result = await syncSanityCategories();
+      setCategorySyncStatus(
+        `Category sync tamamlandı. Güncellenen: ${result.updated}, Yeni: ${result.created}, Kaldırılan: ${result.pruned}, Yeniden atanan post: ${result.reassignedPosts}, Toplam policy: ${result.totalPolicyCount}`
+      );
+      await refreshStatusWithChecks();
+    } catch (error) {
+      setCategorySyncStatus(error instanceof Error ? error.message : 'Category sync başarısız.');
+    } finally {
+      setIsSyncingCategories(false);
     }
   };
 
@@ -299,11 +350,11 @@ function MainApp() {
 
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setIsSanitySettingsOpen(true)}
+            onClick={() => setIsIntegrationSettingsOpen(true)}
             className="flex items-center gap-2 px-3 py-1.5 text-sm font-medium text-zinc-600 bg-white border border-zinc-200 rounded-lg hover:bg-zinc-50 transition-colors shadow-sm"
           >
             <Database className="w-4 h-4" />
-            Sanity
+            Integrations
           </button>
           <button
             onClick={() => setIsSettingsOpen(true)}
@@ -380,11 +431,16 @@ function MainApp() {
         aiTextConfigured={integrationStatus.openai.configured}
       />
 
-      <SanitySettingsModal 
-        isOpen={isSanitySettingsOpen} 
-        onClose={() => setIsSanitySettingsOpen(false)} 
+      <IntegrationSettingsModal 
+        isOpen={isIntegrationSettingsOpen} 
+        onClose={() => setIsIntegrationSettingsOpen(false)} 
         integrationStatus={integrationStatus}
-        onRefreshStatus={loadStatus}
+        onRefreshStatus={refreshStatusWithChecks}
+        isRefreshingStatus={isRefreshingIntegrationStatus}
+        endpointChecks={integrationEndpointChecks}
+        onSyncCategories={handleSyncSanityCategories}
+        isSyncingCategories={isSyncingCategories}
+        categorySyncStatus={categorySyncStatus}
       />
     </div>
   );

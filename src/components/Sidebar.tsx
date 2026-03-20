@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { Upload, Image as ImageIcon, X, Settings, Info, ChevronDown, ChevronRight, Wand2, LayoutTemplate, Monitor, Smartphone, Linkedin, Loader2, Sparkles, Link as LinkIcon, PanelLeftClose, PanelLeftOpen, PenTool } from 'lucide-react';
-import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas } from '../services/gemini';
+import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas, type TopicIdeaSuggestion } from '../services/gemini';
+import { fetchSanityCategories, fetchSanityPosts } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
 
 const PRESETS = [
@@ -49,7 +50,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     blogPreferences: false
   });
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
-  const [topicIdeas, setTopicIdeas] = useState<{topic: string, keywords: string}[]>([]);
+  const [topicIdeas, setTopicIdeas] = useState<TopicIdeaSuggestion[]>([]);
+  const [sanityCategoryOptions, setSanityCategoryOptions] = useState<{ id: string; name: string }[]>([]);
   const openAiConfigured = integrationStatus.openai.configured;
   const geminiConfigured = integrationStatus.gemini.configured;
   const sanityConfigured = integrationStatus.sanity.configured;
@@ -173,6 +175,37 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   const handleGenerateTopics = async () => {
     setIsGeneratingTopics(true);
 
+    let recentPosts: Array<{
+      title: string;
+      excerpt?: string;
+      category?: string;
+      publishedAt?: string;
+    }> = [];
+    let recentPostTitles: string[] = [];
+    let sanityCategoriesForPrompt: { id: string; name: string }[] = [];
+
+    if (sanityConfigured) {
+      const preferredLanguage = state.language === 'EN' ? 'en' : 'tr';
+      const [posts, categories] = await Promise.all([
+        fetchSanityPosts(),
+        fetchSanityCategories(preferredLanguage),
+      ]);
+
+      recentPosts = posts.map((post) => ({
+        title: post.title,
+        excerpt: post.excerpt,
+        category: post.category?.title,
+        categoryId: post.category?._id,
+        publishedAt: post.publishedAt || post.updatedAt,
+      }));
+      recentPostTitles = recentPosts.map((post) => post.title).filter(Boolean);
+      sanityCategoriesForPrompt = categories.map((category) => ({
+        id: category._id,
+        name: category.title,
+      }));
+      setSanityCategoryOptions(sanityCategoriesForPrompt);
+    }
+
     const newIdeas = await generateTopicIdeas(
       state.productName,
       state.featureName,
@@ -180,22 +213,41 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       state.description,
       state.language,
       topicIdeas.map((idea) => idea.topic),
-      [],
-      []
+      recentPosts,
+      recentPostTitles,
+      sanityCategoriesForPrompt
     );
 
     if (newIdeas) {
-      setTopicIdeas(prev => [...prev, ...newIdeas]);
+      setTopicIdeas((prev) => {
+        const seen = new Set(prev.map((idea) => idea.topic.toLowerCase()));
+        const merged = [...prev];
+
+        for (const idea of newIdeas) {
+          const key = idea.topic.toLowerCase();
+          if (!seen.has(key)) {
+            seen.add(key);
+            merged.push(idea);
+          }
+        }
+
+        return merged;
+      });
     }
 
     setIsGeneratingTopics(false);
   };
 
-  const selectTopic = (topic: string, keywords: string) => {
+  const selectTopic = (topic: string, keywords: string, categoryId: string | null) => {
+    const selectedCategory = categoryId
+      ? sanityCategoryOptions.find((category) => category.id === categoryId) || null
+      : null;
+
     setState(prev => ({
       ...prev,
       blogTopic: topic,
-      blogKeywords: keywords
+      blogKeywords: keywords,
+      blogCategory: categoryId ? selectedCategory : prev.blogCategory
     }));
   };
 
@@ -292,7 +344,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                           return (
                             <button
                               key={idx}
-                              onClick={() => selectTopic(idea.topic, idea.keywords)}
+                              onClick={() => selectTopic(idea.topic, idea.keywords, idea.categoryId)}
                               className={`w-full text-left px-3 py-2.5 border-b border-indigo-50 last:border-0 transition-colors group ${
                                 isSelected ? 'bg-indigo-100/50' : 'hover:bg-indigo-50/80'
                               }`}
@@ -307,6 +359,36 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                               }`}>
                                 Keywords: {idea.keywords}
                               </div>
+                              {idea.categoryId && (
+                                <div className={`text-[10px] mt-1 ${
+                                  isSelected ? 'text-indigo-700' : 'text-indigo-600'
+                                }`}>
+                                  Category: {sanityCategoryOptions.find((category) => category.id === idea.categoryId)?.name || 'Auto'}
+                                </div>
+                              )}
+                              {(idea.reason || idea.categoryGap) && (
+                                <div className={`mt-2 space-y-1 rounded-md border px-2 py-2 text-[10px] leading-relaxed ${
+                                  isSelected
+                                    ? 'border-indigo-200 bg-white/70 text-indigo-900'
+                                    : 'border-indigo-100 bg-white/60 text-zinc-600'
+                                }`}>
+                                  {idea.reason && (
+                                    <div>
+                                      <span className="font-semibold">Why now:</span> {idea.reason}
+                                    </div>
+                                  )}
+                                  {idea.categoryGap && (
+                                    <div>
+                                      <span className="font-semibold">Gap:</span> {idea.categoryGap}
+                                    </div>
+                                  )}
+                                  {(idea.excludedRecentTitles || []).length > 0 && (
+                                    <div>
+                                      <span className="font-semibold">Avoids:</span> {idea.excludedRecentTitles?.join(', ')}
+                                    </div>
+                                  )}
+                                </div>
+                              )}
                             </button>
                           );
                         })}

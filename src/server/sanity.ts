@@ -1,5 +1,11 @@
 import { getSanityToken } from './env';
-import { generateBlogImage } from './gemini';
+import {
+  BLOG_IMAGE_SLOT_REGEX,
+  LEGACY_IMAGE_PROMPT_REGEX,
+  extractBlogImageSlotIds,
+  normalizeBlogImageSlotId,
+  type BlogInlineImagePlan,
+} from '../lib/blog-image-slots';
 
 export interface NormalizedSanitySlug {
   current: string;
@@ -37,10 +43,7 @@ export interface PublishData {
   coverAltText?: string;
   coverImageDataUrl?: string;
   coverImagePrompt?: string;
-  inlineImages?: Array<{
-    prompt: string;
-    dataUrl?: string;
-  }>;
+  inlineImages?: BlogInlineImagePlan[];
 }
 
 export interface PublishPayload {
@@ -48,6 +51,25 @@ export interface PublishPayload {
   categoryId?: string | null;
   tr?: PublishData;
   en?: PublishData;
+}
+
+export interface EditorialCategoryPolicyItem {
+  slug: string;
+  titleTr: string;
+  titleEn: string;
+  descriptionTr: string;
+  descriptionEn: string;
+}
+
+export interface SyncEditorialCategoriesResult {
+  created: number;
+  updated: number;
+  pruned: number;
+  reassignedPosts: number;
+  totalPolicyCount: number;
+  fallbackCategorySlug: string;
+  prunedCategorySlugs: string[];
+  categories: NormalizedSanityCategory[];
 }
 
 interface SanityRuntimeConfig {
@@ -78,6 +100,54 @@ const DEFAULT_API_VERSION = '2026-03-01';
 const MAX_SEO_TITLE_LENGTH = 70;
 const MAX_SEO_DESCRIPTION_LENGTH = 160;
 const WRITER_TRANSLATION_KEY_REGEX = /^writer-\d+$/i;
+const ORPHAN_BRACKET_LINE_REGEX = /^[\[\]\(\)\{\}]+$/;
+
+const EDITORIAL_CATEGORY_POLICY: EditorialCategoryPolicyItem[] = [
+  {
+    slug: 'sales-automation',
+    titleTr: 'Satış Otomasyonu',
+    titleEn: 'Sales Automation',
+    descriptionTr: 'Satış süreçlerinde otomasyon, verimlilik ve dönüşüm artışı.',
+    descriptionEn: 'Automation tactics for sales efficiency and conversion growth.',
+  },
+  {
+    slug: 'integrations',
+    titleTr: 'Entegrasyonlar',
+    titleEn: 'Integrations',
+    descriptionTr: 'CRM, form, webhook ve üçüncü parti sistem entegrasyonları.',
+    descriptionEn: 'Guides for CRM, forms, webhooks, and third-party integrations.',
+  },
+  {
+    slug: 'case-study',
+    titleTr: 'Vaka Analizi',
+    titleEn: 'Case Study',
+    descriptionTr: 'Gerçek senaryolardan öğrenilen sonuçlar ve metrikler.',
+    descriptionEn: 'Outcome-focused case studies with real-world metrics.',
+  },
+  {
+    slug: 'use-cases',
+    titleTr: 'Kullanım Senaryoları',
+    titleEn: 'Use Cases',
+    descriptionTr: 'Farklı iş ihtiyaçları için uygulanabilir kullanım senaryoları.',
+    descriptionEn: 'Practical use-case patterns for different business needs.',
+  },
+  {
+    slug: 'measurement-analytics',
+    titleTr: 'Ölçüm ve Analiz',
+    titleEn: 'Measurement and Analytics',
+    descriptionTr: 'Dönüşüm ölçümü, performans takibi ve SEO analitiği.',
+    descriptionEn: 'Conversion measurement, performance tracking, and SEO analytics.',
+  },
+  {
+    slug: 'comparisons',
+    titleTr: 'Karşılaştırmalar',
+    titleEn: 'Comparisons',
+    descriptionTr: 'Yöntem, yaklaşım ve araç karşılaştırmaları.',
+    descriptionEn: 'Comparative content for approaches, methods, and tooling.',
+  },
+];
+
+const DEFAULT_FALLBACK_CATEGORY_SLUG = 'sales-automation';
 
 const TURKISH_CHAR_MAP: Record<string, string> = {
   ç: 'c',
@@ -161,6 +231,9 @@ export function sanitizeBlogMarkdownForPublish(content: string) {
   sanitized = sanitized.replace(/\[IMAGE_PLACEHOLDER_\d+]/gi, '');
 
   sanitized = sanitized
+    .split('\n')
+    .filter((line) => !ORPHAN_BRACKET_LINE_REGEX.test(line.trim()))
+    .join('\n')
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+\n/g, '\n')
     .trim();
@@ -184,7 +257,7 @@ function buildInlineImageAltFromPrompt(prompt: string) {
 
 function extractInlineImagePrompts(content: string) {
   const prompts: string[] = [];
-  const regex = /\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi;
+  const regex = new RegExp(LEGACY_IMAGE_PROMPT_REGEX);
   let match = regex.exec(content);
 
   while (match) {
@@ -193,6 +266,91 @@ function extractInlineImagePrompts(content: string) {
   }
 
   return prompts.filter(Boolean);
+}
+
+function extractInlineImageSlotIds(content: string) {
+  return extractBlogImageSlotIds(content);
+}
+
+function getLanguageLabel(language: 'tr' | 'en') {
+  return language.toUpperCase();
+}
+
+function validateCoverImageRequirement(
+  language: 'tr' | 'en',
+  data: PublishData | undefined,
+  existingRecord?: ExistingSanityPostRecord
+) {
+  if (!data) {
+    return;
+  }
+
+  const hasProvidedCover = Boolean(parseImageDataUrl(data.coverImageDataUrl || ''));
+  const hasExistingCover = Boolean(existingRecord?.coverImage?.asset?._ref);
+
+  if (hasProvidedCover || hasExistingCover) {
+    return;
+  }
+
+  throw new Error(
+    `Missing cover image asset for ${getLanguageLabel(language)} post. Generate or upload the cover image before publish.`
+  );
+}
+
+function buildInlinePayloadMaps(data?: PublishData) {
+  const byPrompt = new Map<string, string>();
+  const bySlotId = new Map<string, { dataUrl: string; prompt: string; altText?: string }>();
+
+  for (const item of data?.inlineImages || []) {
+    const prompt = normalizeWhitespace(String(item?.prompt || ''));
+    const slotId = normalizeBlogImageSlotId(item?.slotId);
+    const altText = normalizeWhitespace(String(item?.altText || ''));
+    const dataUrl = String(item?.dataUrl || '').trim();
+
+    if (slotId && dataUrl && !bySlotId.has(slotId)) {
+      bySlotId.set(slotId, { dataUrl, prompt, altText: altText || undefined });
+    }
+
+    if (prompt && dataUrl && !byPrompt.has(prompt)) {
+      byPrompt.set(prompt, dataUrl);
+    }
+  }
+
+  return {
+    byPrompt,
+    bySlotId,
+  };
+}
+
+function validateInlineImageRequirements(language: 'tr' | 'en', data?: PublishData) {
+  const content = String(data?.content || '');
+  const slotIds = extractInlineImageSlotIds(content);
+  const prompts = Array.from(new Set(extractInlineImagePrompts(content)));
+  const payloadMaps = buildInlinePayloadMaps(data);
+
+  if (slotIds.length === 0 && prompts.length === 0) {
+    return payloadMaps;
+  }
+
+  for (const slotId of slotIds) {
+    const dataUrl = payloadMaps.bySlotId.get(slotId)?.dataUrl || '';
+    if (!parseImageDataUrl(dataUrl)) {
+      throw new Error(
+        `Missing uploaded image asset for inline slot "${slotId}" in ${getLanguageLabel(language)} post. Generate images before publish.`
+      );
+    }
+  }
+
+  for (const prompt of prompts) {
+    const dataUrl = payloadMaps.byPrompt.get(prompt) || '';
+    if (!parseImageDataUrl(dataUrl)) {
+      throw new Error(
+        `Missing uploaded image asset for inline prompt "${prompt}" in ${getLanguageLabel(language)} post. Generate images before publish.`
+      );
+    }
+  }
+
+  return payloadMaps;
 }
 
 interface InlineImageReplacement {
@@ -204,24 +362,37 @@ export function applyInlineImageUrlsToMarkdown(
   content: string,
   replacements: Record<string, InlineImageReplacement>
 ) {
-  const byNormalizedPrompt = new Map<string, InlineImageReplacement>();
-  for (const [prompt, data] of Object.entries(replacements)) {
-    const normalizedPrompt = normalizeWhitespace(prompt);
-    if (normalizedPrompt && data?.url) {
-      byNormalizedPrompt.set(normalizedPrompt, data);
+  const byNormalizedKey = new Map<string, InlineImageReplacement>();
+  for (const [key, data] of Object.entries(replacements)) {
+    const normalizedKey = normalizeWhitespace(key);
+    if (normalizedKey && data?.url) {
+      byNormalizedKey.set(normalizedKey, data);
     }
   }
 
-  return String(content || '').replace(/\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi, (_whole, rawPrompt) => {
-    const normalizedPrompt = normalizeWhitespace(String(rawPrompt || ''));
-    const replacement = byNormalizedPrompt.get(normalizedPrompt);
+  let output = String(content || '').replace(BLOG_IMAGE_SLOT_REGEX, (_whole, rawSlotId) => {
+    const normalizedSlotId = normalizeBlogImageSlotId(rawSlotId);
+    const replacement = byNormalizedKey.get(normalizedSlotId);
     if (!replacement?.url) {
-      return '';
+      return _whole;
+    }
+
+    const alt = normalizeWhitespace(replacement.alt || 'Blog image');
+    return `![${alt}](${replacement.url})`;
+  });
+
+  output = output.replace(/\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi, (_whole, rawPrompt) => {
+    const normalizedPrompt = normalizeWhitespace(String(rawPrompt || ''));
+    const replacement = byNormalizedKey.get(normalizedPrompt);
+    if (!replacement?.url) {
+      return _whole;
     }
 
     const alt = normalizeWhitespace(replacement.alt || buildInlineImageAltFromPrompt(normalizedPrompt));
     return `![${alt}](${replacement.url})`;
   });
+
+  return output;
 }
 
 export function resolveTranslationKeyForPayload(payload: PublishPayload, nowMs = Date.now()) {
@@ -514,6 +685,10 @@ export function normalizeSanityPost(doc: Record<string, unknown>): NormalizedSan
   };
 }
 
+export function getEditorialCategoryPolicy() {
+  return EDITORIAL_CATEGORY_POLICY.map((item) => ({ ...item }));
+}
+
 function buildCategoryQuery() {
   return `*[_type == "category" && defined(slug.current) && !(_id in path("drafts.**"))] | order(coalesce(titleEn, titleTr, title) asc) {
     _id,
@@ -545,6 +720,13 @@ function buildPostQuery() {
       titleEn,
       slug
     }
+  }`;
+}
+
+function buildPostCategoryRefsQuery() {
+  return `*[_type == "post" && !(_id in path("drafts.**"))]{
+    _id,
+    "categoryRef": category._ref
   }`;
 }
 
@@ -647,6 +829,151 @@ export async function fetchSanityPosts(env: NodeJS.ProcessEnv | Record<string, s
   return docs.map((doc) => normalizeSanityPost(doc));
 }
 
+function buildCategoryDocumentFromPolicy(item: EditorialCategoryPolicyItem) {
+  return {
+    _type: 'category',
+    title: `${item.titleTr} / ${item.titleEn}`,
+    titleTr: item.titleTr,
+    titleEn: item.titleEn,
+    description: item.descriptionTr,
+    descriptionTr: item.descriptionTr,
+    descriptionEn: item.descriptionEn,
+    slug: {
+      _type: 'slug',
+      current: item.slug,
+    },
+  };
+}
+
+export async function syncEditorialCategories(
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): Promise<SyncEditorialCategoriesResult> {
+  const policy = getEditorialCategoryPolicy();
+  const existingCategories = await querySanity<Record<string, unknown>>(buildCategoryQuery(), env);
+  const existingBySlug = new Map<string, string>();
+  const policySlugSet = new Set(policy.map((item) => item.slug));
+
+  for (const doc of existingCategories) {
+    const id = normalizeWhitespace(String(doc._id || ''));
+    const slug = normalizeWhitespace(normalizeSanitySlug(doc.slug).current);
+    if (!id || !slug) {
+      continue;
+    }
+    existingBySlug.set(slug, id);
+  }
+
+  const mutations: unknown[] = [];
+  let updated = 0;
+  let created = 0;
+
+  for (const item of policy) {
+    const existingId = existingBySlug.get(item.slug);
+    const categoryDoc = buildCategoryDocumentFromPolicy(item);
+
+    if (existingId) {
+      mutations.push({
+        patch: {
+          id: existingId,
+          set: categoryDoc,
+        },
+      });
+      updated += 1;
+      continue;
+    }
+
+    mutations.push({
+      createIfNotExists: {
+        _id: `category.${item.slug}`,
+        ...categoryDoc,
+      },
+    });
+    created += 1;
+  }
+
+  if (mutations.length > 0) {
+    await mutateSanity(mutations, env);
+  }
+
+  const categoriesAfterUpsert = await querySanity<Record<string, unknown>>(buildCategoryQuery(), env);
+  const fallbackCategory = categoriesAfterUpsert.find((doc) => {
+    const slug = normalizeWhitespace(normalizeSanitySlug(doc.slug).current);
+    return slug === DEFAULT_FALLBACK_CATEGORY_SLUG;
+  }) || categoriesAfterUpsert.find((doc) => policySlugSet.has(normalizeWhitespace(normalizeSanitySlug(doc.slug).current)));
+
+  const fallbackCategoryId = normalizeWhitespace(String(fallbackCategory?._id || ''));
+  const fallbackCategorySlug = normalizeWhitespace(normalizeSanitySlug(fallbackCategory?.slug).current);
+
+  if (!fallbackCategoryId || !fallbackCategorySlug) {
+    throw new Error('Category sync failed: fallback category could not be resolved.');
+  }
+
+  const categoriesToPrune = categoriesAfterUpsert
+    .map((doc) => ({
+      id: normalizeWhitespace(String(doc._id || '')),
+      slug: normalizeWhitespace(normalizeSanitySlug(doc.slug).current),
+    }))
+    .filter((item) => item.id && item.slug)
+    .filter((item) => !policySlugSet.has(item.slug));
+
+  let reassignedPosts = 0;
+  let pruned = 0;
+  const prunedCategorySlugs: string[] = [];
+
+  if (categoriesToPrune.length > 0) {
+    const prunableIds = new Set(categoriesToPrune.map((item) => item.id));
+    const posts = await querySanity<Record<string, unknown>>(buildPostCategoryRefsQuery(), env);
+    const cleanupMutations: unknown[] = [];
+
+    for (const post of posts) {
+      const postId = normalizeWhitespace(String(post._id || ''));
+      const categoryRef = normalizeWhitespace(String(post.categoryRef || ''));
+
+      if (!postId || !categoryRef || !prunableIds.has(categoryRef)) {
+        continue;
+      }
+
+      cleanupMutations.push({
+        patch: {
+          id: postId,
+          set: {
+            category: {
+              _type: 'reference',
+              _ref: fallbackCategoryId,
+            },
+          },
+        },
+      });
+      reassignedPosts += 1;
+    }
+
+    for (const prunableCategory of categoriesToPrune) {
+      cleanupMutations.push({
+        delete: {
+          id: prunableCategory.id,
+        },
+      });
+      prunedCategorySlugs.push(prunableCategory.slug);
+      pruned += 1;
+    }
+
+    if (cleanupMutations.length > 0) {
+      await mutateSanity(cleanupMutations, env);
+    }
+  }
+
+  const categories = await fetchSanityCategories('tr', env);
+  return {
+    created,
+    updated,
+    pruned,
+    reassignedPosts,
+    totalPolicyCount: policy.length,
+    fallbackCategorySlug,
+    prunedCategorySlugs,
+    categories,
+  };
+}
+
 export async function publishToSanity(
   payload: PublishPayload,
   env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
@@ -680,55 +1007,56 @@ export async function publishToSanity(
     return uploadedRef;
   };
 
-  const resolveCoverAssetRef = async (language: 'tr' | 'en', data?: PublishData) => {
+  const resolveCoverAssetRef = async (
+    language: 'tr' | 'en',
+    data: PublishData | undefined,
+    existingRecord?: ExistingSanityPostRecord
+  ) => {
     const coverFilename = `${translationKey}-${language}-cover`;
     const uploadedFromPayload = await uploadOrReuseImageAsset(String(data?.coverImageDataUrl || ''), coverFilename);
     if (uploadedFromPayload?.assetRef) {
       return uploadedFromPayload.assetRef;
     }
 
-    const coverPrompt = normalizeWhitespace(String(data?.coverImagePrompt || ''));
-    if (!coverPrompt) {
-      return null;
+    if (existingRecord?.coverImage?.asset?._ref) {
+      return existingRecord.coverImage.asset._ref;
     }
 
-    const generatedCoverDataUrl = await generateBlogImage(coverPrompt, true);
-    const uploadedFromPrompt = await uploadOrReuseImageAsset(String(generatedCoverDataUrl || ''), coverFilename);
-    return uploadedFromPrompt?.assetRef || null;
-  };
-
-  const buildInlinePayloadMap = (data?: PublishData) => {
-    const map = new Map<string, string>();
-    for (const item of data?.inlineImages || []) {
-      const prompt = normalizeWhitespace(String(item?.prompt || ''));
-      const dataUrl = String(item?.dataUrl || '').trim();
-      if (prompt && dataUrl && !map.has(prompt)) {
-        map.set(prompt, dataUrl);
-      }
-    }
-    return map;
+    return null;
   };
 
   const resolveInlineReplacements = async (language: 'tr' | 'en', data?: PublishData) => {
     const content = String(data?.content || '');
+    const slotIds = extractInlineImageSlotIds(content);
     const prompts = Array.from(new Set(extractInlineImagePrompts(content)));
-    if (prompts.length === 0) {
+    if (slotIds.length === 0 && prompts.length === 0) {
       return {} as Record<string, InlineImageReplacement>;
     }
 
-    const inlinePayloadMap = buildInlinePayloadMap(data);
+    const inlinePayloadMap = validateInlineImageRequirements(language, data);
     const replacements: Record<string, InlineImageReplacement> = {};
+
+    for (let index = 0; index < slotIds.length; index += 1) {
+      const slotId = slotIds[index];
+      const slotPayload = inlinePayloadMap.bySlotId.get(slotId);
+      const payloadDataUrl = slotPayload?.dataUrl || '';
+      const prompt = slotPayload?.prompt || slotId;
+      const filenamePrefix = `${translationKey}-${language}-${slotId}`;
+      const uploaded = await uploadOrReuseImageAsset(payloadDataUrl, filenamePrefix);
+
+      if (uploaded?.url) {
+        replacements[slotId] = {
+          url: uploaded.url,
+          alt: slotPayload?.altText || buildInlineImageAltFromPrompt(prompt),
+        };
+      }
+    }
 
     for (let index = 0; index < prompts.length; index += 1) {
       const prompt = prompts[index];
       const filenamePrefix = `${translationKey}-${language}-inline-${index + 1}`;
-      const payloadDataUrl = inlinePayloadMap.get(prompt) || '';
-
-      let uploaded = await uploadOrReuseImageAsset(payloadDataUrl, filenamePrefix);
-      if (!uploaded) {
-        const generatedDataUrl = await generateBlogImage(prompt, false);
-        uploaded = await uploadOrReuseImageAsset(String(generatedDataUrl || ''), filenamePrefix);
-      }
+      const payloadDataUrl = inlinePayloadMap.byPrompt.get(prompt) || '';
+      const uploaded = await uploadOrReuseImageAsset(payloadDataUrl, filenamePrefix);
 
       if (uploaded?.url) {
         replacements[prompt] = {
@@ -741,14 +1069,24 @@ export async function publishToSanity(
     return replacements;
   };
 
-  const preparePublishData = async (language: 'tr' | 'en', data?: PublishData) => {
+  const preparePublishData = async (
+    language: 'tr' | 'en',
+    data: PublishData | undefined,
+    existingRecord?: ExistingSanityPostRecord
+  ) => {
     if (!data) {
       return null;
     }
 
+    validateCoverImageRequirement(language, data, existingRecord);
     const inlineReplacements = await resolveInlineReplacements(language, data);
     const preparedContent = applyInlineImageUrlsToMarkdown(String(data.content || ''), inlineReplacements);
-    const coverAssetRef = await resolveCoverAssetRef(language, data);
+    if (extractInlineImageSlotIds(preparedContent).length > 0 || extractInlineImagePrompts(preparedContent).length > 0) {
+      throw new Error(
+        `Unresolved inline image markers remain in ${getLanguageLabel(language)} post. Generate or map all inline images before publish.`
+      );
+    }
+    const coverAssetRef = await resolveCoverAssetRef(language, data, existingRecord);
 
     return {
       prepared: {
@@ -759,9 +1097,11 @@ export async function publishToSanity(
     };
   };
 
-  const preparedTr = await preparePublishData('tr', payload.tr);
+  const trId = buildPostDocumentId(translationKey, 'tr');
+  const enId = buildPostDocumentId(translationKey, 'en');
+
+  const preparedTr = await preparePublishData('tr', payload.tr, existingRecords.get(trId));
   if (preparedTr) {
-    const trId = buildPostDocumentId(translationKey, 'tr');
     ids.push(trId);
     mutations.push({
       createOrReplace: buildPostDocument(
@@ -775,9 +1115,8 @@ export async function publishToSanity(
     });
   }
 
-  const preparedEn = await preparePublishData('en', payload.en);
+  const preparedEn = await preparePublishData('en', payload.en, existingRecords.get(enId));
   if (preparedEn) {
-    const enId = buildPostDocumentId(translationKey, 'en');
     ids.push(enId);
     mutations.push({
       createOrReplace: buildPostDocument(

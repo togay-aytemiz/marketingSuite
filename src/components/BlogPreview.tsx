@@ -2,9 +2,18 @@ import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { Settings, PenTool, Loader2, Copy, Check, BarChart3, AlertCircle, Image as ImageIcon, Sparkles, Wand2, Send, Download, RefreshCw, Link as LinkIcon, UploadCloud, Edit3, Eye, Share2, Twitter, Linkedin, Database } from 'lucide-react';
 import { generateBlogPost, analyzeSeoForBlog, generateBlogImage, editBlogPost, addInternalLinks, generateSocialPosts } from '../services/gemini';
-import { fetchSanityPosts, publishToSanity } from '../services/sanity';
+import { fetchSanityCategories, fetchSanityPosts, publishToSanity } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
 import Markdown from 'react-markdown';
+import {
+  BLOG_IMAGE_SLOT_REGEX,
+  LEGACY_IMAGE_PROMPT_REGEX,
+  extractBlogImageSlotIds,
+  extractLegacyImagePrompts,
+  getBlogInlineImageKey,
+  normalizeBlogImageSlotId,
+  type BlogInlineImagePlan,
+} from '../lib/blog-image-slots';
 
 interface BlogPreviewProps {
   state: AppState;
@@ -15,21 +24,155 @@ interface BlogPreviewProps {
   integrationStatus: IntegrationStatus;
 }
 
-function extractInlineImagePromptsFromContent(content: string | null | undefined) {
-  const value = String(content || '');
-  const regex = /\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi;
-  const prompts: string[] = [];
-  let match = regex.exec(value);
+function stripInlineImageMarkers(content: string | null | undefined) {
+  return String(content || '')
+    .replace(BLOG_IMAGE_SLOT_REGEX, '')
+    .replace(LEGACY_IMAGE_PROMPT_REGEX, '')
+    .replace(/\n{3,}/g, '\n\n')
+    .trim();
+}
 
-  while (match) {
-    const prompt = String(match[1] || '').trim();
-    if (prompt) {
-      prompts.push(prompt);
+function buildLegacyInlineImagePlans(content: string | null | undefined): BlogInlineImagePlan[] {
+  return extractLegacyImagePrompts(content).map((prompt) => ({
+    prompt,
+    altText: prompt,
+  }));
+}
+
+function collectInlineImageReferences(contents: Array<string | null | undefined>) {
+  const slotIds = new Set<string>();
+  const legacyPrompts = new Set<string>();
+
+  for (const content of contents) {
+    for (const slotId of extractBlogImageSlotIds(content)) {
+      slotIds.add(slotId);
     }
-    match = regex.exec(value);
+    for (const prompt of extractLegacyImagePrompts(content)) {
+      legacyPrompts.add(prompt);
+    }
   }
 
-  return Array.from(new Set(prompts));
+  return {
+    slotIds,
+    legacyPrompts,
+  };
+}
+
+type ContentSegment =
+  | { type: 'markdown'; value: string }
+  | { type: 'image'; image: BlogInlineImagePlan };
+
+function parseContentSegments(
+  content: string | null | undefined,
+  inlineImages: BlogInlineImagePlan[]
+): ContentSegment[] {
+  const value = String(content || '');
+  const imageBySlotId = new Map<string, BlogInlineImagePlan>();
+  const imageByPrompt = new Map<string, BlogInlineImagePlan>();
+
+  for (const image of inlineImages) {
+    if (image.slotId) {
+      imageBySlotId.set(image.slotId, image);
+    }
+    if (image.prompt) {
+      imageByPrompt.set(image.prompt, image);
+    }
+  }
+
+  const segments: ContentSegment[] = [];
+  const markerRegex = /<!--\s*BLOG_IMAGE:([a-z0-9-]+)\s*-->|\[IMAGE_PROMPT:\s*([^\]]+?)\s*\]/gi;
+  let lastIndex = 0;
+  let match = markerRegex.exec(value);
+
+  while (match) {
+    const markdownChunk = value.slice(lastIndex, match.index);
+    if (markdownChunk) {
+      segments.push({ type: 'markdown', value: markdownChunk });
+    }
+
+    const slotId = String(match[1] || '').trim();
+    const legacyPrompt = String(match[2] || '').trim();
+    const image =
+      (slotId ? imageBySlotId.get(slotId) : null) ||
+      (legacyPrompt ? imageByPrompt.get(legacyPrompt) : null) ||
+      {
+        slotId: slotId || undefined,
+        prompt: legacyPrompt || `Editorial blog image for ${slotId}`,
+        altText: legacyPrompt || 'Blog image',
+      };
+
+    segments.push({ type: 'image', image });
+    lastIndex = match.index + match[0].length;
+    match = markerRegex.exec(value);
+  }
+
+  const tail = value.slice(lastIndex);
+  if (tail) {
+    segments.push({ type: 'markdown', value: tail });
+  }
+
+  return segments.filter((segment) => {
+    if (segment.type === 'markdown') {
+      return Boolean(segment.value.trim());
+    }
+    return Boolean(segment.image.prompt || segment.image.slotId);
+  });
+}
+
+function pruneUnusedInlineImages(content: string | null | undefined, inlineImages: BlogInlineImagePlan[]) {
+  return pruneUnusedInlineImagesForDraft([content], inlineImages);
+}
+
+function pruneUnusedInlineImagesForDraft(
+  contents: Array<string | null | undefined>,
+  inlineImages: BlogInlineImagePlan[]
+) {
+  const { slotIds, legacyPrompts } = collectInlineImageReferences(contents);
+
+  return inlineImages.filter((image) => {
+    const slotId = normalizeBlogImageSlotId(image.slotId);
+    if (slotId && slotIds.has(slotId)) {
+      return true;
+    }
+
+    return legacyPrompts.has(image.prompt);
+  });
+}
+
+function ensureInlineImagePlansForDraft(
+  contents: Array<string | null | undefined>,
+  inlineImages: BlogInlineImagePlan[]
+) {
+  const { slotIds, legacyPrompts } = collectInlineImageReferences(contents);
+  const nextImages = pruneUnusedInlineImagesForDraft(contents, inlineImages);
+  const existingKeys = new Set(nextImages.map((image) => getBlogInlineImageKey(image)).filter(Boolean));
+
+  for (const slotId of slotIds) {
+    if (existingKeys.has(slotId)) {
+      continue;
+    }
+
+    nextImages.push({
+      slotId,
+      prompt: `Elegant editorial blog image for ${slotId}`,
+      altText: 'Blog image',
+    });
+    existingKeys.add(slotId);
+  }
+
+  for (const prompt of legacyPrompts) {
+    if (existingKeys.has(prompt)) {
+      continue;
+    }
+
+    nextImages.push({
+      prompt,
+      altText: prompt,
+    });
+    existingKeys.add(prompt);
+  }
+
+  return nextImages;
 }
 
 export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGenerating, setIsGenerating, triggerGenerate, integrationStatus }) => {
@@ -51,6 +194,38 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const geminiConfigured = integrationStatus.gemini.configured;
   const sanityConfigured = integrationStatus.sanity.configured;
 
+  const autoApplyInternalLinks = async (
+    content: string | null | undefined,
+    language: 'TR' | 'EN',
+    sanityPosts: Array<{
+      title: string;
+      slug: string;
+      excerpt?: string;
+      category?: string;
+      language?: string;
+      publishedAt?: string;
+    }>
+  ) => {
+    if (!content || !state.autoInternalLinks || !sanityConfigured || sanityPosts.length === 0) {
+      return content || null;
+    }
+
+    const normalizedLanguage = language === 'EN' ? 'en' : 'tr';
+    const languageFilteredPosts = sanityPosts.filter((post) => {
+      const postLanguage = String(post.language || '').toLowerCase();
+      return !postLanguage || postLanguage === normalizedLanguage;
+    });
+
+    const linkedContent = await addInternalLinks(
+      content,
+      languageFilteredPosts,
+      language,
+      state.productName,
+      state.featureName
+    );
+    return linkedContent || content;
+  };
+
   useEffect(() => {
     if (triggerGenerate > 0) {
       handleGenerate();
@@ -71,19 +246,42 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     setIsGeneratingCover(false);
   };
 
-  const handleGenerateImage = async (prompt: string) => {
-    setBlogImages(prev => ({ ...prev, [prompt]: { loading: true, url: null } }));
-    const imageUrl = await generateBlogImage(prompt);
-    setBlogImages(prev => ({ ...prev, [prompt]: { loading: false, url: imageUrl } }));
+  const handleGenerateImage = async (image: BlogInlineImagePlan) => {
+    const key = getBlogInlineImageKey(image);
+    if (!key) return;
+    setBlogImages(prev => ({ ...prev, [key]: { loading: true, url: null } }));
+    const imageUrl = await generateBlogImage(image.prompt);
+    if (imageUrl) {
+      setState((prev) => {
+        const exists = prev.blogInlineImages.some((existing) => getBlogInlineImageKey(existing) === key);
+        if (exists) {
+          return prev;
+        }
+
+        return {
+          ...prev,
+          blogInlineImages: [
+            ...prev.blogInlineImages,
+            {
+              ...image,
+              slotId: normalizeBlogImageSlotId(image.slotId) || image.slotId,
+            },
+          ],
+        };
+      });
+    }
+    setBlogImages(prev => ({ ...prev, [key]: { loading: false, url: imageUrl } }));
   };
 
-  const generateInlineImagesSequentially = async (content: string | null | undefined) => {
-    const prompts = extractInlineImagePromptsFromContent(content);
-
-    for (const prompt of prompts) {
+  const generateInlineImagesSequentially = async (images: BlogInlineImagePlan[]) => {
+    for (const image of images) {
+      const key = getBlogInlineImageKey(image);
+      if (!key) {
+        continue;
+      }
       let shouldGenerate = true;
       setBlogImages((prev) => {
-        const existingUrl = prev[prompt]?.url;
+        const existingUrl = prev[key]?.url;
         if (existingUrl) {
           shouldGenerate = false;
           return prev;
@@ -91,7 +289,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
 
         return {
           ...prev,
-          [prompt]: {
+          [key]: {
             loading: true,
             url: null,
           },
@@ -102,12 +300,12 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         continue;
       }
 
-      const imageUrl = await generateBlogImage(prompt);
+      const imageUrl = await generateBlogImage(image.prompt);
       setBlogImages((prev) => ({
         ...prev,
-        [prompt]: {
+        [key]: {
           loading: false,
-          url: imageUrl || prev[prompt]?.url || null,
+          url: imageUrl || prev[key]?.url || null,
         },
       }));
     }
@@ -116,8 +314,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const autoGenerateBlogImages = async (response: {
     coverImagePrompt?: string;
     coverImagePromptEN?: string;
-    content?: string;
-    contentEN?: string;
+    inlineImages?: BlogInlineImagePlan[];
   }) => {
     const generatedCoverTR = response.coverImagePrompt
       ? await generateBlogImage(response.coverImagePrompt, true)
@@ -142,8 +339,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       blogCoverUrlEN: generatedCoverEN || prev.blogCoverUrlEN || generatedCoverTR || prev.blogCoverUrl,
     }));
 
-    await generateInlineImagesSequentially(response.content);
-    await generateInlineImagesSequentially(response.contentEN);
+    await generateInlineImagesSequentially(response.inlineImages || []);
   };
 
   const handleGenerate = async () => {
@@ -154,7 +350,48 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
 
     setIsGenerating(true);
     setBlogImages({});
-    setState(prev => ({ ...prev, blogContent: null, blogContentEN: null, seoAnalysis: null, seoAnalysisEN: null }));
+    setState(prev => ({
+      ...prev,
+      blogContent: null,
+      blogContentEN: null,
+      seoAnalysis: null,
+      seoAnalysisEN: null,
+      blogInlineImages: [],
+    }));
+
+    let sanityPostsForPrompt: Array<{
+      title: string;
+      slug: string;
+      excerpt?: string;
+      category?: string;
+      categoryId?: string;
+      language?: string;
+      publishedAt?: string;
+    }> = [];
+    let sanityCategoriesForPrompt: { id: string; name: string }[] = [];
+
+    if (sanityConfigured) {
+      const preferredLanguage = state.language === 'EN' ? 'en' : 'tr';
+      const [posts, categories] = await Promise.all([
+        fetchSanityPosts(),
+        fetchSanityCategories(preferredLanguage),
+      ]);
+
+      sanityPostsForPrompt = posts.map((post) => ({
+        title: post.title,
+        slug: post.slug.current,
+        excerpt: post.excerpt,
+        category: post.category?.title,
+        categoryId: post.category?._id,
+        language: post.language,
+        publishedAt: post.publishedAt || post.updatedAt,
+      }));
+
+      sanityCategoriesForPrompt = categories.map((category) => ({
+        id: category._id,
+        name: category.title,
+      }));
+    }
 
     const response = await generateBlogPost(
       state.productName,
@@ -166,53 +403,80 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.blogTone,
       state.blogLength,
       state.language,
-      state.blogImageStyle
+      state.blogImageStyle,
+      sanityPostsForPrompt,
+      sanityCategoriesForPrompt
     );
     
     if (response) {
       setViewLanguage(state.language === 'EN' ? 'EN' : 'TR');
+      const selectedCategory = response.categoryId
+        ? sanityCategoriesForPrompt.find((category) => category.id === response.categoryId) || null
+        : null;
+      const linkedContentTR = await autoApplyInternalLinks(response.content, 'TR', sanityPostsForPrompt);
+      const linkedContentEN = response.contentEN
+        ? await autoApplyInternalLinks(response.contentEN, 'EN', sanityPostsForPrompt)
+        : null;
 
       setState(prev => ({ 
         ...prev, 
-        blogContent: response.content,
+        blogContent: linkedContentTR,
         blogTitle: response.title,
         blogDescription: response.description,
         blogSlug: response.slug,
         blogCoverPrompt: response.coverImagePrompt,
         blogCoverAltText: response.coverAltText,
-        blogCategory: prev.blogCategory || null,
         blogCoverUrl: null, // Reset cover image on new generation
-        blogContentEN: response.contentEN || null,
+        blogContentEN: linkedContentEN,
         blogTitleEN: response.titleEN || null,
         blogDescriptionEN: response.descriptionEN || null,
         blogSlugEN: response.slugEN || null,
         blogCoverPromptEN: response.coverImagePromptEN || null,
         blogCoverAltTextEN: response.coverAltTextEN || null,
-        blogCoverUrlEN: null
+        blogCoverUrlEN: null,
+        blogInlineImages: ensureInlineImagePlansForDraft(
+          [linkedContentTR, linkedContentEN],
+          response.inlineImages || []
+        ),
+        blogCategory: selectedCategory || prev.blogCategory || null
       }));
       setSocialPosts(null);
       
       // Run SEO Analysis
       setIsAnalyzingSeo(true);
-      const analysis = await analyzeSeoForBlog(response.title, response.description, response.content, state.blogKeywords);
+      const analysis = await analyzeSeoForBlog(
+        response.title,
+        response.description,
+        stripInlineImageMarkers(linkedContentTR || response.content),
+        state.blogKeywords
+      );
       if (analysis) {
         setState(prev => ({ ...prev, seoAnalysis: analysis }));
       }
       
-      if (response.contentEN) {
-        const analysisEN = await analyzeSeoForBlog(response.titleEN || '', response.descriptionEN || '', response.contentEN, state.blogKeywords);
+      if (linkedContentEN || response.contentEN) {
+        const analysisEN = await analyzeSeoForBlog(
+          response.titleEN || '',
+          response.descriptionEN || '',
+          stripInlineImageMarkers(linkedContentEN || response.contentEN || ''),
+          state.blogKeywords
+        );
         if (analysisEN) {
           setState(prev => ({ ...prev, seoAnalysisEN: analysisEN }));
         }
       }
       setIsAnalyzingSeo(false);
 
+      if (state.autoInternalLinks && sanityConfigured && sanityPostsForPrompt.length > 0) {
+        setSanityMessage({ type: 'success', text: 'Ic linkler otomatik olarak eklendi.' });
+        setTimeout(() => setSanityMessage(null), 3000);
+      }
+
       if (geminiConfigured) {
         void autoGenerateBlogImages({
           coverImagePrompt: response.coverImagePrompt,
           coverImagePromptEN: response.coverImagePromptEN || undefined,
-          content: response.content,
-          contentEN: response.contentEN || undefined,
+          inlineImages: response.inlineImages || [],
         });
       }
     }
@@ -250,7 +514,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
     if (!currentContent || !openAiConfigured) return;
     setIsGeneratingSocial(true);
-    const posts = await generateSocialPosts(currentContent, viewLanguage);
+    const posts = await generateSocialPosts(stripInlineImageMarkers(currentContent), viewLanguage);
     if (posts) {
       setSocialPosts(posts);
     }
@@ -274,9 +538,17 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     );
 
     if (updatedContent) {
+      const nextInlineImages = ensureInlineImagePlansForDraft(
+        [
+          viewLanguage === 'EN' ? state.blogContent : updatedContent,
+          viewLanguage === 'EN' ? updatedContent : state.blogContentEN,
+        ],
+        state.blogInlineImages
+      );
       setState(prev => ({
         ...prev,
-        ...(viewLanguage === 'EN' ? { blogContentEN: updatedContent } : { blogContent: updatedContent })
+        ...(viewLanguage === 'EN' ? { blogContentEN: updatedContent } : { blogContent: updatedContent }),
+        blogInlineImages: nextInlineImages,
       }));
       setEditInstruction('');
       
@@ -285,7 +557,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       const analysis = await analyzeSeoForBlog(
         viewLanguage === 'EN' ? state.blogTitleEN || '' : state.blogTitle || '',
         viewLanguage === 'EN' ? state.blogDescriptionEN || '' : state.blogDescription || '',
-        updatedContent, 
+        stripInlineImageMarkers(updatedContent), 
         state.blogKeywords
       );
       if (analysis) {
@@ -334,9 +606,9 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       coverAltText: state.blogCoverAltText || undefined,
       coverImageDataUrl: state.blogCoverUrl || undefined,
       coverImagePrompt: state.blogCoverPrompt || undefined,
-      inlineImages: extractInlineImagePromptsFromContent(state.blogContent).map((prompt) => ({
-        prompt,
-        dataUrl: blogImages[prompt]?.url || undefined,
+      inlineImages: state.blogInlineImages.map((image) => ({
+        ...image,
+        dataUrl: blogImages[getBlogInlineImageKey(image)]?.url || image.dataUrl || undefined,
       })),
     };
 
@@ -352,32 +624,40 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         coverAltText: state.blogCoverAltTextEN || undefined,
         coverImageDataUrl: state.blogCoverUrlEN || state.blogCoverUrl || undefined,
         coverImagePrompt: state.blogCoverPromptEN || state.blogCoverPrompt || undefined,
-        inlineImages: extractInlineImagePromptsFromContent(state.blogContentEN).map((prompt) => ({
-          prompt,
-          dataUrl: blogImages[prompt]?.url || undefined,
+        inlineImages: state.blogInlineImages.map((image) => ({
+          ...image,
+          dataUrl: blogImages[getBlogInlineImageKey(image)]?.url || image.dataUrl || undefined,
         })),
       };
     }
 
-    const result = await publishToSanity({
-      translationKey,
-      categoryId: state.blogCategory?.id ? String(state.blogCategory.id) : null,
-      tr: trData,
-      en: enData
-    });
-    
-    if (result?.success) {
-      const refreshNote = result.siteRefresh?.attempted
-        ? result.siteRefresh.succeeded
-          ? ' Qualy blog dosyalari da yenilendi.'
-          : ` Sanity publish oldu ama local blog refresh basarisiz: ${result.siteRefresh.message}`
-        : '';
-      setSanityMessage({ type: 'success', text: `Sanity'e gonderildi.${refreshNote}` });
-    } else {
-      setSanityMessage({ type: 'error', text: 'Sanity publish basarisiz.' });
+    try {
+      const result = await publishToSanity({
+        translationKey,
+        categoryId: state.blogCategory?.id ? String(state.blogCategory.id) : null,
+        tr: trData,
+        en: enData
+      });
+      
+      if (result.success) {
+        const refreshNote = result.siteRefresh?.attempted
+          ? result.siteRefresh.succeeded
+            ? ' Qualy blog dosyalari da yenilendi.'
+            : ` Sanity publish oldu ama local blog refresh basarisiz: ${result.siteRefresh.message}`
+          : '';
+        setSanityMessage({ type: 'success', text: `Sanity'e gonderildi.${refreshNote}` });
+      } else {
+        setSanityMessage({ type: 'error', text: 'Sanity publish basarisiz.' });
+      }
+    } catch (error) {
+      setSanityMessage({
+        type: 'error',
+        text: error instanceof Error ? error.message : 'Sanity publish basarisiz.',
+      });
+    } finally {
+      setIsPublishing(false);
+      setTimeout(() => setSanityMessage(null), 4000);
     }
-    setIsPublishing(false);
-    setTimeout(() => setSanityMessage(null), 3000);
   };
 
   const handleAddInternalLinks = async () => {
@@ -407,15 +687,30 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         slug: p.slug.current,
         excerpt: p.excerpt,
         category: p.category?.title,
+        language: p.language,
         publishedAt: p.publishedAt || p.updatedAt,
-      })),
-      viewLanguage
+      })).filter((post) => {
+        const postLanguage = String(post.language || '').toLowerCase();
+        const targetLanguage = viewLanguage === 'EN' ? 'en' : 'tr';
+        return !postLanguage || postLanguage === targetLanguage;
+      }),
+      viewLanguage,
+      state.productName,
+      state.featureName
     );
     
     if (updatedContent) {
+      const nextInlineImages = ensureInlineImagePlansForDraft(
+        [
+          viewLanguage === 'EN' ? state.blogContent : updatedContent,
+          viewLanguage === 'EN' ? updatedContent : state.blogContentEN,
+        ],
+        state.blogInlineImages
+      );
       setState(prev => ({
         ...prev,
-        ...(viewLanguage === 'EN' ? { blogContentEN: updatedContent } : { blogContent: updatedContent })
+        ...(viewLanguage === 'EN' ? { blogContentEN: updatedContent } : { blogContent: updatedContent }),
+        blogInlineImages: nextInlineImages,
       }));
       setSanityMessage({ type: 'success', text: 'Internal links added successfully!' });
       
@@ -424,7 +719,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       const analysis = await analyzeSeoForBlog(
         viewLanguage === 'EN' ? state.blogTitleEN || '' : state.blogTitle || '',
         viewLanguage === 'EN' ? state.blogDescriptionEN || '' : state.blogDescription || '',
-        updatedContent, 
+        stripInlineImageMarkers(updatedContent), 
         state.blogKeywords
       );
       if (analysis) {
@@ -446,31 +741,32 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
     if (!currentContent) return null;
 
-    const parts = currentContent.split(/\[IMAGE_PROMPT:\s*(.*?)\s*\]/g);
+    const effectiveInlineImages =
+      ensureInlineImagePlansForDraft([currentContent], state.blogInlineImages).length > 0
+        ? ensureInlineImagePlansForDraft([currentContent], state.blogInlineImages)
+        : buildLegacyInlineImagePlans(currentContent);
+    const segments = parseContentSegments(currentContent, effectiveInlineImages);
 
-    return parts.map((part, index) => {
-      // Even indices are markdown text
-      if (index % 2 === 0) {
-        return (
-          <Markdown key={index}>
-            {part}
-          </Markdown>
-        );
+    return segments.map((segment, index) => {
+      if (segment.type === 'markdown') {
+        return <Markdown key={`markdown-${index}`}>{segment.value}</Markdown>;
       }
 
-      // Odd indices are image prompts
-      const prompt = part;
-      const imageState = blogImages[prompt];
+      const image = segment.image;
+      const imageKey = getBlogInlineImageKey(image);
+      const imageState = imageKey ? blogImages[imageKey] : null;
+      const altText = image.altText || 'Generated blog image';
+      const prompt = image.prompt;
 
       if (imageState?.url) {
         return (
-          <figure key={index} className="my-10 not-prose relative group">
-            <img src={imageState.url} alt="Generated blog image" className="w-full rounded-2xl shadow-md border border-zinc-100" />
+          <figure key={`image-${imageKey || index}`} className="my-10 not-prose relative group">
+            <img src={imageState.url} alt={altText} className="w-full rounded-2xl shadow-md border border-zinc-100" />
             
             {/* Image Actions Overlay */}
             <div className="absolute top-4 right-4 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
-                onClick={() => handleGenerateImage(prompt)}
+                onClick={() => handleGenerateImage(image)}
                 disabled={imageState.loading || !geminiConfigured}
                 className="p-2 bg-white/90 backdrop-blur-sm border border-zinc-200 text-zinc-700 rounded-lg hover:bg-white hover:text-zinc-900 transition-colors shadow-sm disabled:opacity-50"
                 title="Regenerate Image"
@@ -493,7 +789,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       }
 
       return (
-        <div key={index} className="my-10 p-6 bg-zinc-50 border border-zinc-200 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 text-center not-prose transition-colors hover:bg-zinc-100/50">
+        <div key={`placeholder-${imageKey || index}`} className="my-10 p-6 bg-zinc-50 border border-zinc-200 border-dashed rounded-2xl flex flex-col items-center justify-center gap-3 text-center not-prose transition-colors hover:bg-zinc-100/50">
           <div className="p-3 bg-white text-zinc-400 rounded-full shadow-sm border border-zinc-100 mb-1">
             <ImageIcon className="w-6 h-6" />
           </div>
@@ -502,7 +798,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
             <p className="text-xs text-zinc-500 mt-1 max-w-md mx-auto line-clamp-2" title={prompt}>"{prompt}"</p>
           </div>
           <button
-            onClick={() => handleGenerateImage(prompt)}
+            onClick={() => handleGenerateImage(image)}
             disabled={imageState?.loading || !geminiConfigured}
             className="mt-2 flex items-center gap-2 px-4 py-2 bg-white border border-zinc-200 text-zinc-700 text-sm font-medium rounded-xl hover:bg-zinc-50 hover:text-zinc-900 transition-all disabled:opacity-50 shadow-sm"
           >

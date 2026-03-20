@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { selectRelevantSanityPosts } from '../../src/server/gemini';
+import { buildEditorialBlogImagePrompt, selectRelevantSanityPosts } from '../../src/server/gemini';
 
 test('selects relevant sanity posts by overlap and recency', () => {
   const selected = selectRelevantSanityPosts(
@@ -60,4 +60,23 @@ test('deduplicates posts by slug while ranking relevance', () => {
   const uniqueSlugCount = new Set(slugs).size;
   assert.equal(slugs.length, uniqueSlugCount);
   assert.equal(slugs[0], 'whatsapp-template-guide');
+});
+
+test('builds a strict no-text editorial cover prompt', () => {
+  const prompt = buildEditorialBlogImagePrompt('Conceptual image for sales automation', true);
+
+  assert.equal(prompt.toLowerCase().includes('no text'), true);
+  assert.equal(prompt.toLowerCase().includes('no letters'), true);
+  assert.equal(prompt.toLowerCase().includes('no logos'), true);
+  assert.equal(prompt.toLowerCase().includes('minimal'), true);
+  assert.equal(prompt.toLowerCase().includes('cartoon'), true);
+});
+
+test('builds a strict no-text editorial inline prompt', () => {
+  const prompt = buildEditorialBlogImagePrompt('Abstract visual for integrations', false);
+
+  assert.equal(prompt.toLowerCase().includes('no visible text'), true);
+  assert.equal(prompt.toLowerCase().includes('negative space'), true);
+  assert.equal(prompt.toLowerCase().includes('single focal subject'), true);
+  assert.equal(prompt.toLowerCase().includes('infographic'), true);
 });

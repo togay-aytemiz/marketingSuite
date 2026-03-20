@@ -1,7 +1,15 @@
+import type { BlogInlineImagePlan } from './lib/blog-image-slots';
+
 export interface SeoAnalysis {
   score: number;
   keywords: { word: string; count: number }[];
   suggestions: string[];
+}
+
+export interface BlogTopicIdeaRationale {
+  reason?: string;
+  categoryGap?: string;
+  excludedRecentTitles?: string[];
 }
 
 export interface AppState {
@@ -51,6 +59,7 @@ export interface AppState {
   blogCoverPrompt: string | null;
   blogCoverUrl: string | null;
   blogCoverAltText: string | null;
+  blogInlineImages: BlogInlineImagePlan[];
   
   // EN (Secondary) Content
   blogContentEN?: string | null;
@@ -114,6 +123,7 @@ export const defaultState: AppState = {
   blogCoverPrompt: null,
   blogCoverUrl: null,
   blogCoverAltText: null,
+  blogInlineImages: [],
   
   blogContentEN: null,
   blogTitleEN: null,

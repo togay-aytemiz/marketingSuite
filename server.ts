@@ -23,7 +23,8 @@ import {
   generateSocialPosts,
   generateTopicIdeas,
 } from './src/server/openai';
-import { fetchSanityCategories, fetchSanityPosts, publishToSanity } from './src/server/sanity';
+import { fetchEditorialPlanningSnapshot } from './src/server/editorial-planner';
+import { fetchSanityCategories, fetchSanityPosts, publishToSanity, syncEditorialCategories } from './src/server/sanity';
 import { getStrategyContextSnapshot } from './src/server/strategy-context';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -125,6 +126,15 @@ async function startServer() {
     }
   });
 
+  app.post('/api/sanity/categories/sync', async (_req, res) => {
+    try {
+      const result = await syncEditorialCategories();
+      res.json(result);
+    } catch (error) {
+      res.status(500).json({ error: error instanceof Error ? error.message : 'Failed to sync Sanity categories.' });
+    }
+  });
+
   app.post('/api/sanity/publish', async (req, res) => {
     try {
       const publishResult = await publishToSanity(req.body);
@@ -177,6 +187,17 @@ async function startServer() {
 
     try {
       let result: unknown;
+      const needsEditorialPlanning = status.sanity.configured && (
+        action === 'generate-topic-ideas' || action === 'generate-blog-post'
+      );
+      let editorialSnapshot: Awaited<ReturnType<typeof fetchEditorialPlanningSnapshot>> | null = null;
+      if (needsEditorialPlanning) {
+        try {
+          editorialSnapshot = await fetchEditorialPlanningSnapshot(req.body.language);
+        } catch (planningError) {
+          console.warn('Editorial planning snapshot fetch failed, falling back to request payload.', planningError);
+        }
+      }
 
       switch (action) {
         case 'enhance-product-details':
@@ -242,8 +263,9 @@ async function startServer() {
             req.body.description,
             req.body.language,
             req.body.existingTopics || [],
-            req.body.recentPosts || [],
-            req.body.recentPostTitles || []
+            editorialSnapshot?.recentPosts || req.body.recentPosts || [],
+            editorialSnapshot?.recentPostTitles || req.body.recentPostTitles || [],
+            editorialSnapshot?.sanityCategories || req.body.sanityCategories || []
           );
           break;
         case 'analyze-seo-for-blog':
@@ -266,15 +288,21 @@ async function startServer() {
             req.body.length,
             req.body.language,
             req.body.imageStyle,
-            req.body.sanityPosts,
-            req.body.sanityCategories
+            editorialSnapshot?.recentPosts || req.body.sanityPosts || [],
+            editorialSnapshot?.sanityCategories || req.body.sanityCategories || []
           );
           break;
         case 'generate-blog-image':
           result = await generateBlogImage(req.body.prompt, Boolean(req.body.isCover));
           break;
         case 'add-internal-links':
-          result = await addInternalLinks(req.body.currentContent, req.body.sanityPosts || [], req.body.language);
+          result = await addInternalLinks(
+            req.body.currentContent,
+            req.body.sanityPosts || [],
+            req.body.language,
+            req.body.productName,
+            req.body.featureName
+          );
           break;
         case 'edit-blog-post':
           result = await editBlogPost(

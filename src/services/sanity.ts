@@ -1,3 +1,5 @@
+import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
+
 export interface SanityPost {
   _id: string;
   title: string;
@@ -30,10 +32,7 @@ export interface PublishData {
   coverAltText?: string;
   coverImageDataUrl?: string;
   coverImagePrompt?: string;
-  inlineImages?: Array<{
-    prompt: string;
-    dataUrl?: string;
-  }>;
+  inlineImages?: BlogInlineImagePlan[];
 }
 
 export interface PublishToSanityResponse {
@@ -46,6 +45,17 @@ export interface PublishToSanityResponse {
     projectPath: string | null;
     message: string;
   };
+}
+
+export interface SyncSanityCategoriesResponse {
+  created: number;
+  updated: number;
+  pruned: number;
+  reassignedPosts: number;
+  totalPolicyCount: number;
+  fallbackCategorySlug: string;
+  prunedCategorySlugs: string[];
+  categories: SanityCategory[];
 }
 
 async function readApiError(response: Response) {
@@ -92,51 +102,61 @@ export const publishToSanity = async (
     tr: PublishData;
     en?: PublishData;
   }
-): Promise<PublishToSanityResponse | null> => {
-  try {
-    const payload: Record<string, unknown> = {
-      translationKey: data.translationKey,
-      categoryId: data.categoryId || null,
-      tr: {
-        title: data.tr.title,
-        slug: data.tr.slug || data.tr.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
-        description: data.tr.description || '',
-        content: data.tr.content,
-        coverAltText: data.tr.coverAltText || '',
-        coverImageDataUrl: data.tr.coverImageDataUrl || '',
-        coverImagePrompt: data.tr.coverImagePrompt || '',
-        inlineImages: Array.isArray(data.tr.inlineImages) ? data.tr.inlineImages : [],
-      },
+): Promise<PublishToSanityResponse> => {
+  const payload: Record<string, unknown> = {
+    translationKey: data.translationKey,
+    categoryId: data.categoryId || null,
+    tr: {
+      title: data.tr.title,
+      slug: data.tr.slug || data.tr.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
+      description: data.tr.description || '',
+      content: data.tr.content,
+      coverAltText: data.tr.coverAltText || '',
+      coverImageDataUrl: data.tr.coverImageDataUrl || '',
+      coverImagePrompt: data.tr.coverImagePrompt || '',
+      inlineImages: Array.isArray(data.tr.inlineImages) ? data.tr.inlineImages : [],
+    },
+  };
+
+  if (data.en) {
+    payload.en = {
+      title: data.en.title,
+      slug: data.en.slug || data.en.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
+      description: data.en.description || '',
+      content: data.en.content,
+      coverAltText: data.en.coverAltText || '',
+      coverImageDataUrl: data.en.coverImageDataUrl || '',
+      coverImagePrompt: data.en.coverImagePrompt || '',
+      inlineImages: Array.isArray(data.en.inlineImages) ? data.en.inlineImages : [],
     };
-
-    if (data.en) {
-      payload.en = {
-        title: data.en.title,
-        slug: data.en.slug || data.en.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
-        description: data.en.description || '',
-        content: data.en.content,
-        coverAltText: data.en.coverAltText || '',
-        coverImageDataUrl: data.en.coverImageDataUrl || '',
-        coverImagePrompt: data.en.coverImagePrompt || '',
-        inlineImages: Array.isArray(data.en.inlineImages) ? data.en.inlineImages : [],
-      };
-    }
-
-    const response = await fetch('/api/sanity/publish', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify(payload),
-    });
-
-    if (!response.ok) {
-      throw new Error(await readApiError(response));
-    }
-
-    return (await response.json()) as PublishToSanityResponse;
-  } catch (error) {
-    console.error('Error publishing to Sanity:', error);
-    return null;
   }
+
+  const response = await fetch('/api/sanity/publish', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify(payload),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as PublishToSanityResponse;
+};
+
+export const syncSanityCategories = async (): Promise<SyncSanityCategoriesResponse> => {
+  const response = await fetch('/api/sanity/categories/sync', {
+    method: 'POST',
+    headers: {
+      Accept: 'application/json',
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response));
+  }
+
+  return (await response.json()) as SyncSanityCategoriesResponse;
 };

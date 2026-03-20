@@ -292,6 +292,90 @@ export function getAiInstance() {
   return new GoogleGenAI({ apiKey });
 }
 
+export function buildEditorialBlogImagePrompt(prompt: string, isCover: boolean = false) {
+  const normalizedPrompt = normalizeWhitespace(prompt || "Professional B2B SaaS editorial visual");
+  const shotDirection = isCover
+    ? "Create a refined editorial hero image with strong composition for a blog cover."
+    : "Create an elegant inline editorial image that supports one section without overwhelming the article.";
+
+  const compositionDirection = isCover
+    ? "Use one dominant focal subject with subtle supporting forms, generous breathing room, and premium art direction."
+    : "Use a single focal subject, negative space, and a restrained supporting composition.";
+
+  return `${normalizedPrompt}. ${shotDirection} ${compositionDirection} Keep the result minimal, elegant, professional, and enterprise-ready. Prefer an abstract business metaphor, architectural still life, or premium object study over literal scenes. Use calm premium lighting, tactile materials, a controlled palette, and balanced depth. Absolutely no visible text, no text, no words, no letters, no numbers, no labels, no logos, no watermarks, and no brand marks. No screenshots, no UI mockups, no dashboard panels, and no interface overlays. Avoid cartoon characters, childish illustration, playful mascots, emoji-like icons, toy-like 3D objects, noisy infographic layouts, collage scenes, stock-photo clichés, and cluttered compositions. If people are not essential, do not include people.`;
+}
+
+function parseGeneratedImageDataUrl(imageDataUrl: string) {
+  const match = String(imageDataUrl || '').match(/^data:(image\/[a-zA-Z0-9.+-]+);base64,([a-zA-Z0-9+/=]+)$/);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    mimeType: match[1],
+    data: match[2],
+  };
+}
+
+async function reviewGeneratedBlogImage(imageDataUrl: string, isCover: boolean) {
+  const ai = getAiInstance();
+  if (!ai) {
+    return null;
+  }
+
+  const parsed = parseGeneratedImageDataUrl(imageDataUrl);
+  if (!parsed) {
+    return null;
+  }
+
+  try {
+    const response = await ai.models.generateContent({
+      model: "gemini-3-flash-preview",
+      contents: {
+        parts: [
+          { inlineData: { data: parsed.data, mimeType: parsed.mimeType } },
+          {
+            text: `Review this generated ${isCover ? 'cover' : 'inline'} blog image for a professional B2B SaaS editorial article.
+
+Acceptable only if ALL of these are true:
+- no visible text, letters, numbers, labels, logos, or watermarks
+- no screenshot, no UI mockup, no dashboard panel
+- elegant, minimal, editorial, and professional
+- not cluttered, not noisy, not infographic-like
+- not childish, cartoonish, or toy-like
+
+Return JSON only. Set "acceptable" to false if any rule is violated.`,
+          },
+        ],
+      },
+      config: {
+        responseMimeType: "application/json",
+        responseSchema: {
+          type: Type.OBJECT,
+          properties: {
+            acceptable: { type: Type.BOOLEAN },
+            issues: {
+              type: Type.ARRAY,
+              items: { type: Type.STRING },
+            },
+          },
+          required: ["acceptable", "issues"],
+        },
+      },
+    });
+
+    const text = response.text;
+    if (!text) {
+      return null;
+    }
+
+    return JSON.parse(text) as { acceptable: boolean; issues: string[] };
+  } catch (error) {
+    console.error("Error reviewing generated blog image:", error);
+    return null;
+  }
+}
+
 export async function enhanceProductDetails(
   productName: string,
   featureName: string,
@@ -882,7 +966,8 @@ export interface BlogPostResponse {
   contentEN?: string;
 }
 
-export const generateBlogPost = async (
+// Deprecated legacy path. OpenAI owns blog planning/writing; Gemini is used for image generation.
+const generateBlogPostLegacyDeprecated = async (
   productName: string,
   featureName: string,
   targetAudience: string,
@@ -1110,37 +1195,44 @@ Return a JSON object with "coverImagePrompt", "coverAltText", and an array "inli
 export const generateBlogImage = async (prompt: string, isCover: boolean = false): Promise<string | null> => {
   const ai = getAiInstance();
   if (!ai) return null;
+  const basePrompt = buildEditorialBlogImagePrompt(prompt, isCover);
+  let attemptPrompt = basePrompt;
+  let lastImageDataUrl: string | null = null;
 
-  let enhancedPrompt = prompt;
-  if (isCover) {
-    enhancedPrompt = `${prompt}. IMPORTANT: The image MUST be in a modern 3D isometric or flat-lay tech illustration style, featuring soft frosted glassmorphism effects, floating 3D UI elements (like chat bubbles, icons, or abstract cards), deep blue and purple gradient background, soft studio lighting, clean, minimalist, corporate SaaS aesthetic, high-quality 3D render style. Do not show text, screenshots, or UI mockups directly.`;
-  } else {
-    enhancedPrompt = `${prompt}. IMPORTANT: Do not show screenshots, software interfaces, or UI mockups directly. The image does NOT have to be literal or concrete; it can be an abstract, conceptual, or metaphorical representation of the topic. It is acceptable to show people working on physical computers or screens, but the screen content itself should not be the focus. Focus on the people, the conceptual UI, abstract representation, or the content itself. Digital art style, high quality.`;
-  }
-
-  try {
-    const response = await ai.models.generateContent({
-      model: 'gemini-3.1-flash-image-preview',
-      contents: {
-        parts: [{ text: enhancedPrompt }],
-      },
-      config: {
-        imageConfig: {
-          aspectRatio: "16:9",
-          imageSize: "1K"
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const response = await ai.models.generateContent({
+        model: 'gemini-3.1-flash-image-preview',
+        contents: {
+          parts: [{ text: attemptPrompt }],
+        },
+        config: {
+          imageConfig: {
+            aspectRatio: "16:9",
+            imageSize: "1K"
+          }
         }
-      }
-    });
+      });
 
-    for (const part of response.candidates?.[0]?.content?.parts || []) {
-      if (part.inlineData) {
-        return `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+      for (const part of response.candidates?.[0]?.content?.parts || []) {
+        if (!part.inlineData) {
+          continue;
+        }
+
+        lastImageDataUrl = `data:${part.inlineData.mimeType};base64,${part.inlineData.data}`;
+        const review = await reviewGeneratedBlogImage(lastImageDataUrl, isCover);
+        if (!review || review.acceptable) {
+          return lastImageDataUrl;
+        }
+
+        attemptPrompt = `${basePrompt} CRITICAL CORRECTION FOR NEXT ATTEMPT: ${review.issues.join('; ')}. Remove any text-like marks or symbols entirely. Simplify the composition further. Use fewer elements, more negative space, and a calmer enterprise editorial aesthetic.`;
       }
+    } catch (error) {
+      console.error("Error generating blog image:", error);
     }
-  } catch (error) {
-    console.error("Error generating blog image:", error);
   }
-  return null;
+
+  return lastImageDataUrl;
 };
 
 export const addInternalLinks = async (

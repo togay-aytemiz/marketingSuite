@@ -1,4 +1,5 @@
 import { buildPrompt } from '../lib/visual-prompt';
+import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
 
 export { buildPrompt };
 
@@ -10,6 +11,7 @@ export interface BlogPostResponse {
   coverAltText: string;
   categoryId: string | null;
   content: string;
+  inlineImages: BlogInlineImagePlan[];
   titleEN?: string;
   descriptionEN?: string;
   slugEN?: string;
@@ -30,7 +32,17 @@ export interface RecentTopicReference {
   title: string;
   excerpt?: string;
   category?: string;
+  categoryId?: string;
   publishedAt?: string;
+}
+
+export interface TopicIdeaSuggestion {
+  topic: string;
+  keywords: string;
+  categoryId: string | null;
+  reason?: string;
+  categoryGap?: string;
+  excludedRecentTitles?: string[];
 }
 
 async function readApiError(response: Response) {
@@ -222,12 +234,16 @@ export const generateBlogImage = async (prompt: string, isCover: boolean = false
 export const addInternalLinks = async (
   currentContent: string,
   sanityPosts: SanityPostReference[],
-  language: string
+  language: string,
+  productName?: string,
+  featureName?: string
 ): Promise<string | null> =>
   postAiAction<string>('add-internal-links', {
     currentContent,
     sanityPosts,
     language,
+    productName,
+    featureName,
   });
 
 export const editBlogPost = async (
@@ -268,9 +284,10 @@ export const generateTopicIdeas = async (
   language: string,
   existingTopics: string[] = [],
   recentPosts: RecentTopicReference[] = [],
-  recentPostTitles: string[] = []
-): Promise<{ topic: string; keywords: string }[] | null> =>
-  postAiAction<{ topic: string; keywords: string }[]>('generate-topic-ideas', {
+  recentPostTitles: string[] = [],
+  sanityCategories: { id: string; name: string }[] = []
+): Promise<TopicIdeaSuggestion[] | null> =>
+  postAiAction<TopicIdeaSuggestion[]>('generate-topic-ideas', {
     productName,
     featureName,
     targetAudience,
@@ -279,4 +296,5 @@ export const generateTopicIdeas = async (
     existingTopics,
     recentPosts,
     recentPostTitles,
+    sanityCategories,
   });
