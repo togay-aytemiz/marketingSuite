@@ -23,6 +23,7 @@ import { buildPublishReadiness, extractMarkdownLinkCount } from '../lib/blog-pub
 import { ensureFinalCallToAction } from '../lib/blog-call-to-action';
 import { resolveDraftCategory } from '../lib/blog-category-resolution';
 import { buildSanityPublishMessage } from '../lib/blog-publish-feedback';
+import { convertBlogPublishMediaToWebp, convertImageDataUrlToWebp } from '../lib/blog-media-webp';
 
 interface BlogPreviewProps {
   state: AppState;
@@ -804,15 +805,24 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       dataUrl: blogImages[getBlogInlineImageKey(image)]?.url || image.dataUrl || undefined,
     }));
 
+    const publishMedia = await convertBlogPublishMediaToWebp(
+      {
+        coverImageDataUrl: state.blogCoverUrl || undefined,
+        coverImageDataUrlEN: state.blogCoverUrlEN || state.blogCoverUrl || undefined,
+        inlineImages,
+      },
+      convertImageDataUrlToWebp
+    );
+
     const trData = state.blogContent ? {
       title,
       content: ensureFinalCallToAction(state.blogContent, 'TR', state.productName, state.featureName),
       description: state.blogDescription || '',
       slug: state.blogSlug || undefined,
       coverAltText: state.blogCoverAltText || undefined,
-      coverImageDataUrl: state.blogCoverUrl || undefined,
+      coverImageDataUrl: publishMedia.coverImageDataUrl || undefined,
       coverImagePrompt: state.blogCoverPrompt || undefined,
-      inlineImages,
+      inlineImages: publishMedia.inlineImages,
     } : undefined;
 
     let enData = undefined;
@@ -825,9 +835,9 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         description: state.blogDescriptionEN || '',
         slug: state.blogSlugEN || undefined,
         coverAltText: state.blogCoverAltTextEN || undefined,
-        coverImageDataUrl: state.blogCoverUrlEN || state.blogCoverUrl || undefined,
+        coverImageDataUrl: publishMedia.coverImageDataUrlEN || undefined,
         coverImagePrompt: state.blogCoverPromptEN || state.blogCoverPrompt || undefined,
-        inlineImages,
+        inlineImages: publishMedia.inlineImages,
       };
     }
 

@@ -69,6 +69,14 @@ const RELEVANCE_STOP_WORDS = new Set([
   "yazı",
   "rehber",
 ]);
+const OFFICIAL_QUALY_SITE_URL = 'https://www.askqualy.com';
+const QUALY_SITE_GUARDRAILS = `
+OFFICIAL QUALY WEBSITE RULES:
+- The official Qualy website is ${OFFICIAL_QUALY_SITE_URL}.
+- Never invent, guess, or substitute another Qualy domain (for example: qualy.ai).
+- When the article references the product website or homepage, use ${OFFICIAL_QUALY_SITE_URL}.
+- For internal blog links, keep site-relative links like /blog/slug or /en/blog/slug unless the user explicitly asks for absolute URLs.
+`;
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
@@ -1088,6 +1096,7 @@ Product Name: ${productName || 'Our Product'}
 Feature/Focus Area: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 ${recentTopicsInstruction}
 
@@ -1315,6 +1324,7 @@ export const addInternalLinks = async (
 You are an expert SEO content editor. Your task is to naturally integrate internal links into the following blog post.
 
 Language: ${language === 'TR' ? 'Turkish' : 'English'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
 Available Internal Blog Posts:
@@ -1388,6 +1398,7 @@ Feature/Focus Area: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
 Language: ${language === 'TR' ? 'Turkish' : 'English'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
 CURRENT BLOG POST:

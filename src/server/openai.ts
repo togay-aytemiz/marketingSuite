@@ -89,6 +89,14 @@ interface OpenAiChatConfig {
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
 const MAX_SEO_TITLE_LENGTH = 70;
 const ORPHAN_BRACKET_LINE_REGEX = /^[\[\]\(\)\{\}]+$/;
+const OFFICIAL_QUALY_SITE_URL = 'https://www.askqualy.com';
+const QUALY_SITE_GUARDRAILS = `
+OFFICIAL QUALY WEBSITE RULES:
+- The official Qualy website is ${OFFICIAL_QUALY_SITE_URL}.
+- Never invent, guess, or substitute another Qualy domain (for example: qualy.ai).
+- When the article references the product website or homepage, use ${OFFICIAL_QUALY_SITE_URL}.
+- For internal blog links, keep site-relative links like /blog/slug or /en/blog/slug unless the user explicitly asks for absolute URLs.
+`;
 
 const TURKISH_MARKETING_TERM_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\blead scoring\b/gi, replacement: 'müşteri adayı puanlama' },
@@ -964,6 +972,7 @@ Product Name: ${productName || 'Our Product'}
 Feature/Focus Area: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
 BLOG INPUT:
@@ -1161,6 +1170,7 @@ You are an expert SEO content editor.
 Add natural internal links to this markdown blog post.
 
 Language: ${language === 'TR' ? 'Turkish' : 'English'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
 Available Internal Posts:
@@ -1227,6 +1237,7 @@ Product Name: ${productName || 'Our Product'}
 Feature: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
 Description: ${description || 'A modern software solution'}
+${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
 CURRENT BLOG:
