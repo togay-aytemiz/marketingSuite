@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildSearchIntentTitleGuidance,
   buildImagePlanContextSnapshot,
   buildBlogImageSlotMarker,
   buildBlogImagePromptPolicy,
@@ -11,6 +12,7 @@ import {
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
   normalizeTopicIdeaCandidate,
+  normalizeTurkishTextQuality,
   resolveCategoryId,
   resolveCategoryMeta,
 } from '../../src/server/openai';
@@ -114,6 +116,28 @@ test('normalizes common english marketing terms to Turkish equivalents', () => {
   assert.equal(normalized.includes('müşteri adayı puanlama'), true);
   assert.equal(normalized.includes('dönüşüm oranı'), true);
   assert.equal(normalized.includes('etkileşim'), true);
+});
+
+test('normalizes common ASCII Turkish title phrases into natural Turkish characters', () => {
+  const normalized = normalizeTurkishTextQuality(
+    'Hazir yanitlar nasil kullanilir? Urun notu icin gorsel secimi ve kullanim senaryosu'
+  );
+
+  assert.equal(normalized.includes('Hazır yanıtlar'), true);
+  assert.equal(normalized.includes('nasıl kullanılır'), true);
+  assert.equal(normalized.toLocaleLowerCase('tr-TR').includes('ürün notu'), true);
+  assert.equal(normalized.includes('için'), true);
+  assert.equal(normalized.includes('görsel'), true);
+  assert.equal(normalized.includes('seçimi'), true);
+  assert.equal(normalized.includes('kullanım senaryosu'), true);
+});
+
+test('builds title guidance that prefers search intent over generic release-note framing', () => {
+  const guidance = buildSearchIntentTitleGuidance('TR');
+
+  assert.equal(guidance.includes('problem + solution + use case'), true);
+  assert.equal(guidance.includes('ürün notu'), true);
+  assert.equal(guidance.includes('hazir, nasil'), true);
 });
 
 test('builds a restrained cover-image policy for glassmorphism visuals', () => {
@@ -272,11 +296,11 @@ test('returns category metadata explaining slug-based resolution', () => {
 test('normalizes topic idea rationale fields and turkish terminology', () => {
   const normalized = normalizeTopicIdeaCandidate(
     {
-      topic: 'AI lead scoring ile conversion artisi',
-      keywords: 'AI lead scoring, conversion rate, engagement',
+      topic: 'AI lead scoring ile hazir yanitlar nasil kullanilir',
+      keywords: 'AI lead scoring, conversion rate, engagement, urun notu',
       categoryId: 'cat-sales',
-      reason: 'Lead scoring ve conversion odakli yeni bir aci.',
-      categoryGap: 'Bu kategoride son donemde daha az yazi var.',
+      reason: 'Lead scoring ve conversion odakli hazir yanit acisi.',
+      categoryGap: 'Bu kategoride son donemde daha az urun notu yazisi var.',
       excludedRecentTitles: ['Eski Yazi 1', ' ', 'Eski Yazi 2'],
     },
     true,
@@ -286,6 +310,8 @@ test('normalizes topic idea rationale fields and turkish terminology', () => {
 
   assert.equal(normalized?.topic.includes('AI'), false);
   assert.equal(normalized?.keywords.includes('conversion'), false);
+  assert.equal(normalized?.topic.includes('hazır yanıtlar nasıl kullanılır'), true);
+  assert.equal(normalized?.keywords.includes('ürün notu'), true);
   assert.equal(normalized?.reason.includes('müşteri adayı puanlama'), true);
   assert.deepEqual(normalized?.excludedRecentTitles, ['Eski Yazi 1', 'Eski Yazi 2']);
   assert.equal(normalized?.categoryId, 'cat-sales');

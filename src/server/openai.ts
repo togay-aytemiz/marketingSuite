@@ -109,9 +109,103 @@ const TURKISH_MARKETING_TERM_REPLACEMENTS: Array<{ pattern: RegExp; replacement:
   { pattern: /\bworkflow\b/gi, replacement: 'iş akışı' },
   { pattern: /\bAI\b/g, replacement: 'yapay zeka' },
 ];
+const TURKISH_ASCII_TEXT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bhazir yanitlar\b/gi, replacement: 'hazır yanıtlar' },
+  { pattern: /\bhazir yanit\b/gi, replacement: 'hazır yanıt' },
+  { pattern: /\bnasil kullanilir\b/gi, replacement: 'nasıl kullanılır' },
+  { pattern: /\bnasil yapilir\b/gi, replacement: 'nasıl yapılır' },
+  { pattern: /\badim adim\b/gi, replacement: 'adım adım' },
+  { pattern: /\bkullanim senaryosu\b/gi, replacement: 'kullanım senaryosu' },
+  { pattern: /\burun notu\b/gi, replacement: 'ürün notu' },
+  { pattern: /\bhazirlanir\b/gi, replacement: 'hazırlanır' },
+  { pattern: /\bkullanilir\b/gi, replacement: 'kullanılır' },
+  { pattern: /\byapilir\b/gi, replacement: 'yapılır' },
+  { pattern: /\bnasil\b/gi, replacement: 'nasıl' },
+  { pattern: /\bhazir\b/gi, replacement: 'hazır' },
+  { pattern: /\byanitlar\b/gi, replacement: 'yanıtlar' },
+  { pattern: /\byanit\b/gi, replacement: 'yanıt' },
+  { pattern: /\bicin\b/gi, replacement: 'için' },
+  { pattern: /\bgorseller\b/gi, replacement: 'görseller' },
+  { pattern: /\bgorseli\b/gi, replacement: 'görseli' },
+  { pattern: /\bgorsel\b/gi, replacement: 'görsel' },
+  { pattern: /\bsecimi\b/gi, replacement: 'seçimi' },
+  { pattern: /\bsecim\b/gi, replacement: 'seçim' },
+  { pattern: /\burunler\b/gi, replacement: 'ürünler' },
+  { pattern: /\burun\b/gi, replacement: 'ürün' },
+  { pattern: /\bkullanim\b/gi, replacement: 'kullanım' },
+  { pattern: /\bolcum\b/gi, replacement: 'ölçüm' },
+  { pattern: /\bcozum\b/gi, replacement: 'çözüm' },
+  { pattern: /\bkarsilastirma\b/gi, replacement: 'karşılaştırma' },
+  { pattern: /\bcagri\b/gi, replacement: 'çağrı' },
+  { pattern: /\bmusteri\b/gi, replacement: 'müşteri' },
+  { pattern: /\bdonusum\b/gi, replacement: 'dönüşüm' },
+  { pattern: /\betkilesim\b/gi, replacement: 'etkileşim' },
+  { pattern: /\bozellikleri\b/gi, replacement: 'özellikleri' },
+  { pattern: /\bozelligi\b/gi, replacement: 'özelliği' },
+  { pattern: /\bozellik\b/gi, replacement: 'özellik' },
+  { pattern: /\byazilar\b/gi, replacement: 'yazılar' },
+  { pattern: /\byazisi\b/gi, replacement: 'yazısı' },
+  { pattern: /\byazi\b/gi, replacement: 'yazı' },
+];
 
 function normalizeWhitespace(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function isAllUppercaseTurkish(value: string) {
+  return value === value.toLocaleUpperCase('tr-TR');
+}
+
+function isAllLowercaseTurkish(value: string) {
+  return value === value.toLocaleLowerCase('tr-TR');
+}
+
+function isTitleCaseTurkish(value: string) {
+  return value
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((token) => {
+      const letters = token.replace(/^[^A-Za-zÇĞİÖŞÜçğıöşü]+|[^A-Za-zÇĞİÖŞÜçğıöşü]+$/gu, '');
+      if (!letters) {
+        return true;
+      }
+
+      const lower = letters.toLocaleLowerCase('tr-TR');
+      return letters.charAt(0) === letters.charAt(0).toLocaleUpperCase('tr-TR')
+        && letters.slice(1) === lower.slice(1);
+    });
+}
+
+function toTitleCaseTurkish(value: string) {
+  return value.replace(/[A-Za-zÇĞİÖŞÜçğıöşü]+/gu, (word) => {
+    const lower = word.toLocaleLowerCase('tr-TR');
+    return `${lower.charAt(0).toLocaleUpperCase('tr-TR')}${lower.slice(1)}`;
+  });
+}
+
+function toSentenceCaseTurkish(value: string) {
+  const lower = value.toLocaleLowerCase('tr-TR');
+  return lower.replace(/[A-Za-zÇĞİÖŞÜçğıöşü]/u, (char) => char.toLocaleUpperCase('tr-TR'));
+}
+
+function applyTurkishCasePattern(source: string, replacement: string) {
+  if (isAllUppercaseTurkish(source)) {
+    return replacement.toLocaleUpperCase('tr-TR');
+  }
+
+  if (isAllLowercaseTurkish(source)) {
+    return replacement.toLocaleLowerCase('tr-TR');
+  }
+
+  if (source === toSentenceCaseTurkish(source)) {
+    return toSentenceCaseTurkish(replacement);
+  }
+
+  if (isTitleCaseTurkish(source)) {
+    return toTitleCaseTurkish(replacement);
+  }
+
+  return replacement;
 }
 
 export function cleanGeneratedMarkdownArtifacts(value: string) {
@@ -194,8 +288,38 @@ export function enforceTurkishMarketingTerminology(value: string) {
   return normalized;
 }
 
+export function normalizeTurkishTextQuality(value: string) {
+  let normalized = String(value || '');
+
+  for (const item of TURKISH_ASCII_TEXT_REPLACEMENTS) {
+    normalized = normalized.replace(
+      item.pattern,
+      (match) => applyTurkishCasePattern(match, item.replacement)
+    );
+  }
+
+  return normalized;
+}
+
 function normalizeTurkishMarketingText(value: string) {
-  return cleanGeneratedMarkdownArtifacts(enforceTurkishMarketingTerminology(value));
+  return cleanGeneratedMarkdownArtifacts(
+    normalizeTurkishTextQuality(enforceTurkishMarketingTerminology(value))
+  );
+}
+
+export function buildSearchIntentTitleGuidance(language: 'TR' | 'EN') {
+  const genericTitleExample = language === 'TR' ? '"ürün notu"' : '"product update"';
+  const localeRule = language === 'TR'
+    ? '- Use natural Turkish characters in every Turkish field. Never write ASCII spellings such as hazir, nasil, urun, icin, gorsel.'
+    : '- Keep the wording concrete, specific, and naturally aligned with real search queries.';
+
+  return `
+TITLE STRATEGY RULES:
+- Prefer titles framed around search intent: problem + solution + use case.
+- Avoid vague, generic announcement framing such as ${genericTitleExample} unless the user explicitly asked for release notes.
+- Favor concrete query patterns people actually search for: how-to, checklist, comparison, troubleshooting, template, example, and use case angles.
+${localeRule}
+`.trim();
 }
 
 export function buildBlogImagePromptPolicy(imageStyle: string) {
@@ -327,7 +451,7 @@ export function normalizeTopicIdeaCandidate(
 
   const normalizeText = (value: unknown) => {
     const normalized = cleanGeneratedMarkdownArtifacts(String(value || ''));
-    return shouldNormalizeTurkish ? enforceTurkishMarketingTerminology(normalized) : normalized;
+    return shouldNormalizeTurkish ? normalizeTurkishMarketingText(normalized) : normalized;
   };
 
   const reason = normalizeText(item?.reason);
@@ -340,8 +464,8 @@ export function normalizeTopicIdeaCandidate(
     : [];
 
   return {
-    topic: shouldNormalizeTurkish ? enforceTurkishMarketingTerminology(topic) : topic,
-    keywords: shouldNormalizeTurkish ? enforceTurkishMarketingTerminology(keywords) : keywords,
+    topic: shouldNormalizeTurkish ? normalizeTurkishMarketingText(topic) : topic,
+    keywords: shouldNormalizeTurkish ? normalizeTurkishMarketingText(keywords) : keywords,
     categoryId,
     reason: reason || undefined,
     categoryGap: categoryGap || undefined,
@@ -740,9 +864,12 @@ async function ensureTitleWithinLimit(title: string, language: 'TR' | 'EN') {
     temperature: 0.2,
     prompt: `Rewrite this title in ${language === 'TR' ? 'Turkish' : 'English'}.
 
+${buildSearchIntentTitleGuidance(language)}
+
 Rules:
 - Keep meaning.
 - Keep SEO intent.
+- Keep the title concrete and search-intent driven.
 - Must be at most ${MAX_SEO_TITLE_LENGTH} characters.
 - Return only the rewritten title, no quotes.
 
@@ -931,6 +1058,9 @@ export const generateBlogPost = async (
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
   const portfolioStageInstruction = buildPortfolioStageInstruction(recentPosts.length);
+  const titleGuidanceInstruction = isBoth
+    ? `${buildSearchIntentTitleGuidance('TR')}\n${buildSearchIntentTitleGuidance('EN')}`
+    : buildSearchIntentTitleGuidance(primaryLanguage);
 
   const schema: Record<string, unknown> = {
     type: 'object',
@@ -985,6 +1115,7 @@ Image Style: ${imageStyle}
 ${recentPostsInstruction}
 ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
+${titleGuidanceInstruction}
 
 CRITICAL RULES:
 1. Every title field must be <= ${MAX_SEO_TITLE_LENGTH} chars.
@@ -1015,6 +1146,10 @@ CRITICAL RULES:
    - Each H2 section must introduce a clearly different angle.
    - Avoid repeating the same noun phrase across adjacent paragraphs or bullets.
    - Keep paragraphs concise and information-dense.
+12. Title quality:
+   - Titles must reflect a clear search intent, not a generic announcement.
+   - Prefer specific patterns such as problem/solution, how-to, comparison, checklist, template, or use-case framing.
+   - Avoid generic titles like "ürün notu", "product update", or "feature news" unless the user explicitly asked for release notes.
 `,
   });
 
@@ -1259,7 +1394,9 @@ ${internalLinksInstruction}
       return result;
     }
 
-    const cleaned = cleanGeneratedMarkdownArtifacts(result);
+    const cleaned = language === 'TR'
+      ? normalizeTurkishMarketingText(result)
+      : cleanGeneratedMarkdownArtifacts(result);
     return ensureFinalCallToAction(cleaned, language === 'TR' ? 'TR' : 'EN', productName, featureName);
   });
 };
@@ -1309,6 +1446,7 @@ export const generateTopicIdeas = async (
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
   const portfolioStageInstruction = buildPortfolioStageInstruction(recentPosts.length);
   const shouldNormalizeTurkish = language === 'TR' || language === 'BOTH';
+  const titleGuidanceInstruction = buildSearchIntentTitleGuidance(language === 'EN' ? 'EN' : 'TR');
 
   const payload = await runOpenAiJson<{ items: TopicIdeaSuggestion[] }>({
     schemaName: 'topic_ideas',
@@ -1351,6 +1489,7 @@ ${strategyContextInstruction}
 ${recencyInstruction}
 ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
+${titleGuidanceInstruction}
 
 Already generated topics (avoid overlap):
 ${existingTopics.length > 0 ? existingTopics.map((topic) => `- ${topic}`).join('\n') : '- none'}
@@ -1368,6 +1507,7 @@ Return exactly 5 items:
 Quality rules for Turkish output:
 - Do not use English marketing words like lead, conversion, engagement, workflow, sales funnel.
 - Use Turkish equivalents (müşteri adayı, dönüşüm, etkileşim, iş akışı, satış hunisi).
+- Use natural Turkish characters instead of ASCII spellings such as hazir, nasil, urun, icin.
 `,
   });
 
