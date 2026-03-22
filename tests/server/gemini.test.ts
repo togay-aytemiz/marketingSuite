@@ -70,6 +70,14 @@ test('builds a strict no-text editorial cover prompt', () => {
   assert.equal(prompt.toLowerCase().includes('no logos'), true);
   assert.equal(prompt.toLowerCase().includes('minimal'), true);
   assert.equal(prompt.toLowerCase().includes('cartoon'), true);
+  assert.equal(prompt.toLowerCase().includes('glassmorphism'), true);
+  assert.equal(prompt.toLowerCase().includes('1-2'), true);
+  assert.equal(prompt.toLowerCase().includes('clutter'), true);
+  assert.equal(prompt.toLowerCase().includes('dark graphite'), true);
+  assert.equal(prompt.toLowerCase().includes('deep navy'), true);
+  assert.equal(prompt.toLowerCase().includes('frosted glass tile'), true);
+  assert.equal(prompt.toLowerCase().includes('no people'), true);
+  assert.equal(prompt.toLowerCase().includes('avoid empty generic glass tiles'), true);
 });
 
 test('builds a strict no-text editorial inline prompt', () => {
@@ -79,4 +87,7 @@ test('builds a strict no-text editorial inline prompt', () => {
   assert.equal(prompt.toLowerCase().includes('negative space'), true);
   assert.equal(prompt.toLowerCase().includes('single focal subject'), true);
   assert.equal(prompt.toLowerCase().includes('infographic'), true);
+  assert.equal(prompt.toLowerCase().includes('realistic editorial photography'), true);
+  assert.equal(prompt.toLowerCase().includes('clean simplified explainer card'), true);
+  assert.equal(prompt.toLowerCase().includes('publication-grade realism'), true);
 });

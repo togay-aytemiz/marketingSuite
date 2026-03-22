@@ -2,12 +2,32 @@ import { getOpenAiApiKey } from './env';
 import { getStrategyContextSnapshot } from './strategy-context';
 import { selectRelevantSanityPosts } from './gemini';
 import {
+  buildInlineImagePlacementSummaries,
+  sanitizeEditorialPromptText,
+  stripOuterMarkdownFence,
+} from '../lib/blog-draft-media';
+import {
+  ensureFinalCallToAction,
+} from '../lib/blog-call-to-action';
+import {
+  resolveDraftCategory,
+  type DraftCategoryOption,
+  type DraftRecentCategoryReference,
+} from '../lib/blog-category-resolution';
+import {
+  finalizeCoverImagePromptText,
+  finalizeInlineImagePromptText,
+  getCoverImageHouseStyleBullets,
+  getInlineImageHouseStyleBullets,
+} from '../lib/editorial-cover-style';
+import {
   buildBlogImageSlotMarker,
   extractBlogImageSlotIds,
   normalizeBlogImageSlotId,
   type BlogInlineImagePlan,
 } from '../lib/blog-image-slots';
 export { buildBlogImageSlotMarker, extractBlogImageSlotIds } from '../lib/blog-image-slots';
+export { ensureFinalCallToAction } from '../lib/blog-call-to-action';
 
 export interface SanityPostReference {
   title: string;
@@ -32,6 +52,13 @@ export interface BlogPostResponse {
   coverImagePrompt: string;
   coverAltText: string;
   categoryId: string | null;
+  category?: {
+    id: string;
+    name: string;
+    resolvedBy?: 'exact-id' | 'exact-name' | 'slug-match' | 'fallback-balance';
+    confidence?: 'high' | 'medium' | 'low';
+    fallbackReason?: string | null;
+  } | null;
   content: string;
   inlineImages: BlogInlineImagePlan[];
   titleEN?: string;
@@ -62,10 +89,6 @@ interface OpenAiChatConfig {
 const DEFAULT_OPENAI_MODEL = 'gpt-4o';
 const MAX_SEO_TITLE_LENGTH = 70;
 const ORPHAN_BRACKET_LINE_REGEX = /^[\[\]\(\)\{\}]+$/;
-const DEFAULT_CTA_HEADING: Record<'TR' | 'EN', string> = {
-  TR: '## Sonraki Adım',
-  EN: '## Next Step',
-};
 
 const TURKISH_MARKETING_TERM_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
   { pattern: /\blead scoring\b/gi, replacement: 'müşteri adayı puanlama' },
@@ -84,7 +107,7 @@ function normalizeWhitespace(value: string) {
 }
 
 export function cleanGeneratedMarkdownArtifacts(value: string) {
-  const lines = String(value || '').replace(/\r\n/g, '\n').split('\n');
+  const lines = stripOuterMarkdownFence(value).replace(/\r\n/g, '\n').split('\n');
   const cleanedLines = lines.filter((line) => !ORPHAN_BRACKET_LINE_REGEX.test(line.trim()));
   const sliced = cleanedLines.join('\n');
 
@@ -92,6 +115,65 @@ export function cleanGeneratedMarkdownArtifacts(value: string) {
     .replace(/\n{3,}/g, '\n\n')
     .replace(/[ \t]+\n/g, '\n')
     .trim();
+}
+
+function truncateForPrompt(value: string, maxLength = 180) {
+  const normalized = normalizeWhitespace(value);
+  if (normalized.length <= maxLength) {
+    return normalized;
+  }
+
+  return `${normalized.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…`;
+}
+
+function buildArticleOutlineSnapshot(markdown: string, maxHeadings = 8) {
+  const headings = Array.from(
+    cleanGeneratedMarkdownArtifacts(markdown)
+      .matchAll(/^(##|###)\s+(.+)$/gm)
+  )
+    .slice(0, maxHeadings)
+    .map((match) => `- ${match[1] === '##' ? 'H2' : 'H3'}: ${truncateForPrompt(match[2], 120)}`);
+
+  return headings.length > 0 ? headings.join('\n') : '- No headings extracted';
+}
+
+export function buildImagePlanContextSnapshot(content: string, contentEN?: string) {
+  const primaryContent = cleanGeneratedMarkdownArtifacts(content);
+  const englishContent = cleanGeneratedMarkdownArtifacts(contentEN || '');
+  const primaryPlacements = buildInlineImagePlacementSummaries(primaryContent);
+  const englishPlacements = englishContent ? buildInlineImagePlacementSummaries(englishContent) : [];
+
+  const sections = [
+    `ARTICLE OUTLINE:\n${buildArticleOutlineSnapshot(primaryContent)}`,
+  ];
+
+  if (primaryPlacements.length > 0) {
+    sections.push(
+      `INLINE IMAGE SLOTS:\n${primaryPlacements
+        .map(
+          (placement) =>
+            `- ${placement.slotId} | section: ${truncateForPrompt(placement.heading, 80)} | context: ${truncateForPrompt(placement.context, 180)}`
+        )
+        .join('\n')}`
+    );
+  }
+
+  if (englishContent) {
+    sections.push(`ENGLISH OUTLINE:\n${buildArticleOutlineSnapshot(englishContent, 6)}`);
+  }
+
+  if (englishPlacements.length > 0) {
+    sections.push(
+      `ENGLISH INLINE SLOTS:\n${englishPlacements
+        .map(
+          (placement) =>
+            `- ${placement.slotId} | section: ${truncateForPrompt(placement.heading, 80)} | context: ${truncateForPrompt(placement.context, 180)}`
+        )
+        .join('\n')}`
+    );
+  }
+
+  return sections.join('\n\n');
 }
 
 export function enforceTurkishMarketingTerminology(value: string) {
@@ -108,49 +190,7 @@ function normalizeTurkishMarketingText(value: string) {
   return cleanGeneratedMarkdownArtifacts(enforceTurkishMarketingTerminology(value));
 }
 
-function buildCallToActionBody(language: 'TR' | 'EN', productName: string, featureName: string) {
-  const normalizedProduct = normalizeWhitespace(productName || 'Qualy');
-  const normalizedFeature = normalizeWhitespace(featureName || 'mesajlaşma ve satış otomasyonu');
-
-  if (language === 'EN') {
-    return `${normalizedProduct} can help you turn ${normalizedFeature} into a repeatable growth workflow. If you want to review your current setup and identify the fastest improvements, get in touch with our team.`;
-  }
-
-  return `${normalizedProduct}, ${normalizedFeature} sürecini daha ölçülebilir ve tekrar edilebilir hale getirmene yardımcı olabilir. Mevcut yapını birlikte değerlendirmek ve en hızlı iyileştirme alanlarını görmek istersen ekibimizle iletişime geçebilirsin.`;
-}
-
-export function ensureFinalCallToAction(
-  content: string,
-  language: 'TR' | 'EN',
-  productName: string,
-  featureName: string
-) {
-  const heading = DEFAULT_CTA_HEADING[language];
-  const normalized = cleanGeneratedMarkdownArtifacts(content);
-  const finalBlock = `${heading}\n\n${buildCallToActionBody(language, productName, featureName)}`.trim();
-
-  if (!normalized) {
-    return finalBlock;
-  }
-
-  if (normalized.endsWith(finalBlock)) {
-    return normalized;
-  }
-
-  const lastHeadingIndex = normalized.lastIndexOf(heading);
-  const baseContent =
-    lastHeadingIndex >= 0 && lastHeadingIndex >= normalized.length - 800
-      ? normalized.slice(0, lastHeadingIndex).trim()
-      : normalized;
-
-  if (!baseContent) {
-    return finalBlock;
-  }
-
-  return `${baseContent}\n\n${finalBlock}`.trim();
-}
-
-function buildBlogImagePromptPolicy(imageStyle: string) {
+export function buildBlogImagePromptPolicy(imageStyle: string) {
   return `
 IMAGE PROMPT POLICY:
 - Prompts must be in English.
@@ -158,6 +198,13 @@ IMAGE PROMPT POLICY:
 - No screenshots, no product UI mockups, no dashboard panels, no fake app interfaces.
 - Prefer elegant editorial concepts: refined still life, abstract spatial metaphor, premium object study, architectural light-and-shadow, tactile material composition.
 - Prefer a single focal subject and at most 2-3 supporting objects.
+- HOUSE STYLE FOR ALL COVER IMAGES:
+${getCoverImageHouseStyleBullets()}
+- HOUSE STYLE FOR INLINE ARTICLE IMAGES:
+${getInlineImageHouseStyleBullets()}
+- Cover images must not use people, teams, meetings, office scenes, or literal workflow scenes.
+- Inline images should default to realistic editorial photography. Use an explainer card only when the section is inherently diagrammatic.
+- Avoid dense icon clouds, busy scenes, swirling overlays, neon chaos, literal social app logos, and crowded explainer visuals.
 - Use negative space, restrained composition, quiet premium lighting, and a controlled palette.
 - Avoid childish illustration, cartoon people, playful mascots, busy infographic layouts, sticker-like icons, meme aesthetics, noisy collage scenes, and literal explainer diagrams.
 - If people are not necessary, do not include people.
@@ -179,7 +226,7 @@ function normalizeInlineImages(
 
   for (const image of images || []) {
     const slotId = normalizeBlogImageSlotId(image?.slotId);
-    const prompt = cleanGeneratedMarkdownArtifacts(String(image?.prompt || ''));
+    const prompt = sanitizeEditorialPromptText(cleanGeneratedMarkdownArtifacts(String(image?.prompt || '')));
     const altText = cleanGeneratedMarkdownArtifacts(String(image?.altText || ''));
 
     if (!slotId || !allowedSlotIds.has(slotId) || !prompt) {
@@ -207,8 +254,8 @@ function buildFallbackInlineImagePrompt(
   const subject = normalizeWhitespace(title || description || 'B2B SaaS article section');
   const visualDirection = normalizeWhitespace(imageStyle || 'minimal editorial business visual');
 
-  return cleanGeneratedMarkdownArtifacts(
-    `Elegant editorial visual for "${subject}". Abstract business metaphor, minimal composition, single focal subject, negative space, premium lighting, and restrained palette. Visual direction: ${visualDirection}. Slot reference: ${slotId}.`
+  return finalizeInlineImagePromptText(
+    `Editorial photo: ${subject} ${visualDirection} ${slotId}`
   );
 }
 
@@ -485,59 +532,59 @@ IMPORTANT:
 `;
 }
 
+function resolveCategoryMatch(
+  rawCategoryId: string | null | undefined,
+  sanityCategories: { id: string; name: string }[],
+  recentPosts: RecentTopicReference[]
+) {
+  const resolved = resolveDraftCategory({
+    rawCategoryId,
+    sanityCategories: sanityCategories as DraftCategoryOption[],
+    recentPosts: recentPosts as DraftRecentCategoryReference[],
+  });
+
+  if (!resolved) {
+    return null;
+  }
+
+  return {
+    id: resolved.id,
+    resolvedBy: resolved.resolvedBy,
+    confidence: resolved.confidence,
+    fallbackReason: resolved.fallbackReason,
+  };
+}
+
 export function resolveCategoryId(
   rawCategoryId: string | null | undefined,
   sanityCategories: { id: string; name: string }[],
   recentPosts: RecentTopicReference[]
 ) {
-  const normalizedCategories = sanityCategories
-    .map((category) => ({
-      id: normalizeWhitespace(category.id || ''),
-      name: normalizeWhitespace(category.name || ''),
-    }))
-    .filter((category) => category.id && category.name);
+  return resolveCategoryMatch(rawCategoryId, sanityCategories, recentPosts)?.id || null;
+}
 
-  if (normalizedCategories.length === 0) {
+export function resolveCategoryMeta(
+  rawCategoryId: string | null | undefined,
+  sanityCategories: { id: string; name: string }[],
+  recentPosts: RecentTopicReference[]
+) {
+  const resolved = resolveCategoryMatch(rawCategoryId, sanityCategories, recentPosts);
+  if (!resolved?.id) {
     return null;
   }
 
-  const candidate = normalizeWhitespace(String(rawCategoryId || ''));
-  const exactMatch = normalizedCategories.find((category) => category.id === candidate);
-  if (exactMatch) {
-    return exactMatch.id;
+  const category = sanityCategories.find((item) => normalizeWhitespace(item.id || '') === resolved.id);
+  if (!category) {
+    return null;
   }
 
-  const byName = normalizedCategories.find((category) => category.name.toLowerCase() === candidate.toLowerCase());
-  if (byName) {
-    return byName.id;
-  }
-
-  const countsById = new Map<string, number>();
-  const countsByName = new Map<string, number>();
-  for (const post of recentPosts) {
-    const categoryId = normalizeWhitespace(post.categoryId || '').toLowerCase();
-    if (categoryId) {
-      countsById.set(categoryId, (countsById.get(categoryId) || 0) + 1);
-      continue;
-    }
-
-    const categoryName = normalizeWhitespace(post.category || '').toLowerCase();
-    if (!categoryName) {
-      continue;
-    }
-    countsByName.set(categoryName, (countsByName.get(categoryName) || 0) + 1);
-  }
-
-  const fallback = [...normalizedCategories].sort((a, b) => {
-    const aCount = countsById.get(a.id.toLowerCase()) || countsByName.get(a.name.toLowerCase()) || 0;
-    const bCount = countsById.get(b.id.toLowerCase()) || countsByName.get(b.name.toLowerCase()) || 0;
-    if (aCount !== bCount) {
-      return aCount - bCount;
-    }
-    return a.name.localeCompare(b.name);
-  })[0];
-
-  return fallback?.id || null;
+  return {
+    id: resolved.id,
+    name: normalizeWhitespace(category.name || ''),
+    resolvedBy: resolved.resolvedBy,
+    confidence: resolved.confidence,
+    fallbackReason: resolved.fallbackReason,
+  };
 }
 
 function buildStrategyContextInstruction() {
@@ -870,6 +917,7 @@ export const generateBlogPost = async (
   sanityCategories: { id: string; name: string }[] = []
 ): Promise<BlogPostResponse | null> => {
   const isBoth = language === 'BOTH';
+  const primaryLanguage = language === 'EN' ? 'EN' : 'TR';
   const targetLang = isBoth ? 'Turkish and English' : language === 'TR' ? 'Turkish' : 'English';
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
@@ -950,8 +998,14 @@ CRITICAL RULES:
    - Do not use English marketing words like lead, conversion, engagement, workflow, sales funnel.
    - Use Turkish equivalents (müşteri adayı, dönüşüm, etkileşim, iş akışı, satış hunisi).
 10. Content structure:
+   - Start with 1-2 short intro paragraphs before the first H2.
    - End the article with a reader-facing call to action section.
    - FAQ must appear before the final CTA section.
+11. Writing quality:
+   - Do not repeat the title as the first H2.
+   - Each H2 section must introduce a clearly different angle.
+   - Avoid repeating the same noun phrase across adjacent paragraphs or bullets.
+   - Keep paragraphs concise and information-dense.
 `,
   });
 
@@ -969,7 +1023,7 @@ CRITICAL RULES:
     postData.content = cleanGeneratedMarkdownArtifacts(postData.content);
   }
 
-  postData.title = await ensureTitleWithinLimit(postData.title, 'TR');
+  postData.title = await ensureTitleWithinLimit(postData.title, primaryLanguage);
   if (postData.titleEN) {
     postData.titleEN = cleanGeneratedMarkdownArtifacts(postData.titleEN);
     postData.titleEN = await ensureTitleWithinLimit(postData.titleEN, 'EN');
@@ -988,7 +1042,7 @@ CRITICAL RULES:
     postData.slugEN = slugifyText(postData.titleEN);
   }
 
-  postData.content = ensureFinalCallToAction(postData.content, 'TR', productName, featureName);
+  postData.content = ensureFinalCallToAction(postData.content, primaryLanguage, productName, featureName);
   if (postData.contentEN) {
     postData.contentEN = ensureFinalCallToAction(postData.contentEN, 'EN', productName, featureName);
   }
@@ -1033,10 +1087,8 @@ Description: ${postData.description}
 Language: ${targetLang}
 ${buildBlogImagePromptPolicy(imageStyle)}
 
-ARTICLE MARKDOWN:
-${postData.content}
-
-${postData.contentEN ? `ENGLISH MARKDOWN:\n${postData.contentEN}\n` : ''}
+ARTICLE CONTEXT SNAPSHOT:
+${buildImagePlanContextSnapshot(postData.content, postData.contentEN)}
 
 Return:
 - coverImagePrompt: one strong cover prompt
@@ -1044,19 +1096,31 @@ Return:
 - inlineImages: one item per slot marker found in the markdown
 
 Rules:
+- Return SHORT prompt seeds only, not full production prompts. The renderer will add house-style rules later.
+- coverImagePrompt must be 6-14 words, in English, semantic, and tied to the article topic.
+- coverImagePrompt must describe a meaningful brandless business metaphor, not a blank panel or generic glass rectangle.
+- coverImagePrompt must avoid vague filler words like "concept", "visual", "illustration", or "metaphor" unless absolutely necessary.
+- Do not include house-style wording like "dark background", "negative space", "minimal composition", or "no text" in the returned prompt.
+- inlineImages[].prompt must be 6-18 words, in English, and begin with either "Editorial photo:" or "Explainer card:".
+- inlineImages[].prompt must be concise and non-repetitive. No long sentences, no repeated stems, no style-policy language.
 - Use the exact slot ids already present in the markdown.
 - Do not invent new slot ids.
 - If no inline slot exists, return an empty inlineImages array.
-- Prompts must be elegant, minimal, editorial, and business-relevant.
+- Prompts must be elegant, minimal, editorial, business-relevant, and visually realistic where appropriate.
 `,
   });
 
-  postData.coverImagePrompt = cleanGeneratedMarkdownArtifacts(imagePlan?.coverImagePrompt || 'Minimal editorial B2B concept visual');
+  postData.coverImagePrompt = finalizeCoverImagePromptText(
+    imagePlan?.coverImagePrompt || 'Minimal glassmorphism editorial B2B cover'
+  );
   postData.coverAltText = shouldNormalizeTurkish
     ? normalizeTurkishMarketingText(imagePlan?.coverAltText || 'Blog kapak gorseli')
     : cleanGeneratedMarkdownArtifacts(imagePlan?.coverAltText || 'Blog cover image');
   postData.inlineImages = ensureInlineImageCoverage(
-    normalizeInlineImages(imagePlan?.inlineImages, postData.content, postData.contentEN),
+    normalizeInlineImages(imagePlan?.inlineImages, postData.content, postData.contentEN).map((image) => ({
+      ...image,
+      prompt: finalizeInlineImagePromptText(image.prompt),
+    })),
     postData.content,
     postData.contentEN,
     postData.title,
@@ -1070,7 +1134,8 @@ Rules:
     postData.coverAltTextEN = cleanGeneratedMarkdownArtifacts(imagePlan?.coverAltText || 'Blog cover image');
   }
 
-  postData.categoryId = resolveCategoryId(postData.categoryId, sanityCategories, recentPosts);
+  postData.category = resolveCategoryMeta(postData.categoryId, sanityCategories, recentPosts);
+  postData.categoryId = postData.category?.id || null;
   return postData;
 };
 
@@ -1107,7 +1172,8 @@ ${currentContent}
 Rules:
 - Add 1-3 links only when context is relevant.
 - Use markdown links: [anchor](/blog/slug).
-- Keep all formatting, <!-- BLOG_IMAGE:image-x --> markers, and any legacy image placeholders exactly.
+- Keep all formatting and preserve every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
+- If any legacy [IMAGE_PROMPT: ...] token appears, leave it untouched. Do not invent new ones.
 - Return only the full revised markdown.
 `,
   }).then((result) => {
@@ -1171,7 +1237,8 @@ ${instruction}
 
 Rules:
 - Apply only requested edits, keep the rest unchanged.
-- Preserve markdown structure, <!-- BLOG_IMAGE:image-x --> markers, and any legacy image prompt placeholders.
+- Preserve markdown structure and keep every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
+- If any legacy [IMAGE_PROMPT: ...] token appears, leave it untouched. Do not invent new ones.
 - Do NOT include script tags, JSON-LD, HTML, or code fences.
 - Return only revised markdown.
 ${internalLinksInstruction}

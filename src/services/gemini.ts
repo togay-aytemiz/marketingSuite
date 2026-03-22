@@ -1,5 +1,6 @@
 import { buildPrompt } from '../lib/visual-prompt';
 import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
+import type { ResolvedBlogCategory } from '../types';
 
 export { buildPrompt };
 
@@ -10,6 +11,7 @@ export interface BlogPostResponse {
   coverImagePrompt: string;
   coverAltText: string;
   categoryId: string | null;
+  category?: ResolvedBlogCategory | null;
   content: string;
   inlineImages: BlogInlineImagePlan[];
   titleEN?: string;

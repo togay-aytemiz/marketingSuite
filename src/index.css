@@ -1,4 +1,4 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Manrope:wght@500;600;700;800&display=swap');
 @import "tailwindcss";
 
 @theme {
@@ -22,4 +22,151 @@
 
 ::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
+}
+
+.blog-article-shell {
+  width: 100%;
+  max-width: min(100%, 76ch);
+  margin: 0 auto;
+  min-width: 0;
+}
+
+.blog-article-prose {
+  color: #475467;
+  font-size: 1.08rem;
+  line-height: 1.9;
+  letter-spacing: -0.012em;
+  font-weight: 400;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+  text-wrap: pretty;
+  min-width: 0;
+}
+
+.blog-article-prose > * + * {
+  margin-top: 1.3rem;
+}
+
+.blog-article-prose :where(h1, h2, h3, h4) {
+  color: #101828;
+  font-family: "Manrope", "Inter", ui-sans-serif, system-ui, sans-serif;
+  letter-spacing: -0.035em;
+  font-weight: 800;
+  line-height: 1.12;
+  margin: 0;
+  text-wrap: balance;
+}
+
+.blog-article-prose :where(h1) {
+  font-size: clamp(2rem, 1.6rem + 1.15vw, 2.65rem);
+  margin-top: 0;
+  margin-bottom: 1rem;
+}
+
+.blog-article-prose :where(h2) {
+  font-size: clamp(1.7rem, 1.35rem + 0.85vw, 2rem);
+  margin-top: 3rem;
+  margin-bottom: 0.9rem;
+}
+
+.blog-article-prose :where(h3) {
+  font-size: clamp(1.25rem, 1.08rem + 0.42vw, 1.45rem);
+  margin-top: 1.9rem;
+  margin-bottom: 0.65rem;
+}
+
+.blog-article-prose :where(h2 + p, h3 + p, h4 + p) {
+  margin-top: 0;
+}
+
+.blog-article-prose :where(p, li, blockquote) {
+  color: #475467;
+  text-wrap: pretty;
+}
+
+.blog-article-prose :where(p) {
+  margin: 0;
+}
+
+.blog-article-prose :where(pre) {
+  margin: 1.5rem 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  overflow-wrap: anywhere;
+  font: inherit;
+  background: transparent;
+  color: inherit;
+}
+
+.blog-article-prose :where(code) {
+  font-family: inherit;
+  white-space: pre-wrap;
+}
+
+.blog-article-prose :where(strong) {
+  color: #101828;
+  font-weight: 700;
+}
+
+.blog-article-prose :where(a) {
+  color: #155eef;
+  text-decoration: none;
+  font-weight: 600;
+}
+
+.blog-article-prose :where(a:hover) {
+  color: #175cd3;
+  text-decoration: underline;
+  text-underline-offset: 0.16em;
+}
+
+.blog-article-prose :where(ul, ol) {
+  margin: 1.35rem 0;
+  padding-left: 1.35rem;
+}
+
+.blog-article-prose :where(li + li) {
+  margin-top: 0.85rem;
+}
+
+.blog-article-prose :where(li::marker) {
+  color: #cbd5e1;
+}
+
+.blog-article-prose :where(blockquote) {
+  margin: 2rem 0;
+  padding-left: 1rem;
+  border-left: 3px solid #d0d5dd;
+  color: #667085;
+}
+
+.blog-article-prose :where(hr) {
+  margin: 2.5rem 0;
+  border: 0;
+  border-top: 1px solid #e2e8f0;
+}
+
+.blog-article-prose :where(img, figure, figcaption) {
+  display: none !important;
+}
+
+@media (max-width: 1024px) {
+  .blog-article-shell {
+    max-width: min(100%, 72ch);
+  }
+}
+
+@media (max-width: 640px) {
+  .blog-article-prose {
+    font-size: 1rem;
+    line-height: 1.8;
+  }
+
+  .blog-article-prose :where(h2) {
+    margin-top: 2.35rem;
+  }
+
+  .blog-article-prose :where(h3) {
+    margin-top: 1.7rem;
+  }
 }

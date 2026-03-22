@@ -2,7 +2,9 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildImagePlanContextSnapshot,
   buildBlogImageSlotMarker,
+  buildBlogImagePromptPolicy,
   buildCategoryDistributionInstruction,
   cleanGeneratedMarkdownArtifacts,
   ensureFinalCallToAction,
@@ -10,6 +12,7 @@ import {
   extractBlogImageSlotIds,
   normalizeTopicIdeaCandidate,
   resolveCategoryId,
+  resolveCategoryMeta,
 } from '../../src/server/openai';
 
 test('cleans orphan bracket lines at the start and end of markdown', () => {
@@ -60,6 +63,22 @@ Paragraf.
   assert.equal(cleaned.includes('## Devam'), true);
 });
 
+test('strips an outer markdown code fence from generated article content', () => {
+  const cleaned = cleanGeneratedMarkdownArtifacts(`
+\`\`\`markdown
+Giris paragrafi.
+
+## Ara Baslik
+
+Detay paragrafi.
+\`\`\`
+`);
+
+  assert.equal(cleaned.startsWith('Giris paragrafi.'), true);
+  assert.equal(cleaned.includes('```markdown'), false);
+  assert.equal(cleaned.includes('## Ara Baslik'), true);
+});
+
 test('extracts blog image slot ids from markdown comments', () => {
   const content = `
 ## Giris
@@ -95,6 +114,19 @@ test('normalizes common english marketing terms to Turkish equivalents', () => {
   assert.equal(normalized.includes('müşteri adayı puanlama'), true);
   assert.equal(normalized.includes('dönüşüm oranı'), true);
   assert.equal(normalized.includes('etkileşim'), true);
+});
+
+test('builds a restrained cover-image policy for glassmorphism visuals', () => {
+  const policy = buildBlogImagePromptPolicy('soft glassmorphism');
+
+  assert.equal(policy.toLowerCase().includes('glassmorphism'), true);
+  assert.equal(policy.toLowerCase().includes('1-2'), true);
+  assert.equal(policy.toLowerCase().includes('cover images'), true);
+  assert.equal(policy.toLowerCase().includes('no visible text'), true);
+  assert.equal(policy.toLowerCase().includes('dark graphite'), true);
+  assert.equal(policy.toLowerCase().includes('deep navy'), true);
+  assert.equal(policy.toLowerCase().includes('one large frosted glass tile'), true);
+  assert.equal(policy.toLowerCase().includes('no people'), true);
 });
 
 test('builds category distribution snapshot sorted by lower post counts first', () => {
@@ -145,6 +177,30 @@ test('builds category distribution using categoryId even when category names dif
   assert.equal(salesIndex < msgIndex, true);
 });
 
+test('builds a compact image plan context snapshot instead of embedding full article markdown', () => {
+  const snapshot = buildImagePlanContextSnapshot(`
+Giris paragrafi.
+
+## Yapay Zeka ile Müşteri Adayı Önceliklendirme
+
+Bu bolum veriye dayali puanlama ve onceliklendirme mantigini anlatir.
+
+<!-- BLOG_IMAGE:image-1 -->
+
+## Gercek Zamanli Veri Analizi
+
+Bu bolum ekiplerin canli veriyle hizli aksiyon almasini anlatir.
+
+<!-- BLOG_IMAGE:image-2 -->
+`);
+
+  assert.equal(snapshot.includes('ARTICLE OUTLINE'), true);
+  assert.equal(snapshot.includes('INLINE IMAGE SLOTS'), true);
+  assert.equal(snapshot.includes('image-1'), true);
+  assert.equal(snapshot.includes('image-2'), true);
+  assert.equal(snapshot.includes('<!-- BLOG_IMAGE'), false);
+});
+
 test('resolves category with fallback to least-covered category when model returns invalid id', () => {
   const categories = [
     { id: 'cat-msg', name: 'Mesajlaşma' },
@@ -161,6 +217,56 @@ test('resolves category with fallback to least-covered category when model retur
   assert.equal(resolveCategoryId('cat-sales', categories, recentPosts), 'cat-sales');
   assert.equal(resolveCategoryId('CRM', categories, recentPosts), 'cat-crm');
   assert.equal(resolveCategoryId('non-existing-id', categories, recentPosts), 'cat-crm');
+});
+
+test('resolves category when model returns a slug instead of the Sanity document id', () => {
+  const categories = [
+    { id: 'category.sales-automation', name: 'Satış Otomasyonu' },
+    { id: 'category.integrations', name: 'Entegrasyonlar' },
+  ];
+
+  const recentPosts = [
+    { title: 'P1', category: 'Satış Otomasyonu', categoryId: 'category.sales-automation' },
+    { title: 'P2', category: 'Satış Otomasyonu', categoryId: 'category.sales-automation' },
+  ];
+
+  assert.equal(resolveCategoryId('sales-automation', categories, recentPosts), 'category.sales-automation');
+});
+
+test('returns resolved category metadata for the chosen category', () => {
+  const categories = [
+    { id: 'cat-msg', name: 'Mesajlaşma' },
+    { id: 'cat-sales', name: 'Satış Otomasyonu' },
+  ];
+
+  const resolved = resolveCategoryMeta(null, categories, [
+    { title: 'P1', category: 'Mesajlaşma', categoryId: 'cat-msg' },
+  ]);
+
+  assert.deepEqual(resolved, {
+    id: 'cat-sales',
+    name: 'Satış Otomasyonu',
+    resolvedBy: 'fallback-balance',
+    confidence: 'low',
+    fallbackReason: 'Model category was invalid, so the least-covered matching category was selected automatically.',
+  });
+});
+
+test('returns category metadata explaining slug-based resolution', () => {
+  const categories = [
+    { id: 'category.sales-automation', name: 'Satış Otomasyonu' },
+    { id: 'category.integrations', name: 'Entegrasyonlar' },
+  ];
+
+  const resolved = resolveCategoryMeta('sales-automation', categories, []);
+
+  assert.deepEqual(resolved, {
+    id: 'category.sales-automation',
+    name: 'Satış Otomasyonu',
+    resolvedBy: 'slug-match',
+    confidence: 'medium',
+    fallbackReason: 'Model returned a slug-like category value, mapped to the closest Sanity category.',
+  });
 });
 
 test('normalizes topic idea rationale fields and turkish terminology', () => {

@@ -99,14 +99,17 @@ export const publishToSanity = async (
   data: {
     translationKey?: string;
     categoryId?: string | null;
-    tr: PublishData;
+    tr?: PublishData;
     en?: PublishData;
   }
 ): Promise<PublishToSanityResponse> => {
   const payload: Record<string, unknown> = {
     translationKey: data.translationKey,
     categoryId: data.categoryId || null,
-    tr: {
+  };
+
+  if (data.tr) {
+    payload.tr = {
       title: data.tr.title,
       slug: data.tr.slug || data.tr.title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, ''),
       description: data.tr.description || '',
@@ -115,8 +118,8 @@ export const publishToSanity = async (
       coverImageDataUrl: data.tr.coverImageDataUrl || '',
       coverImagePrompt: data.tr.coverImagePrompt || '',
       inlineImages: Array.isArray(data.tr.inlineImages) ? data.tr.inlineImages : [],
-    },
-  };
+    };
+  }
 
   if (data.en) {
     payload.en = {

@@ -6,6 +6,14 @@ export interface SeoAnalysis {
   suggestions: string[];
 }
 
+export interface ResolvedBlogCategory {
+  id: string;
+  name: string;
+  resolvedBy?: 'exact-id' | 'exact-name' | 'slug-match' | 'fallback-balance' | 'strategy-suggestion';
+  confidence?: 'high' | 'medium' | 'low';
+  fallbackReason?: string | null;
+}
+
 export interface BlogTopicIdeaRationale {
   reason?: string;
   categoryGap?: string;
@@ -70,7 +78,7 @@ export interface AppState {
   blogCoverUrlEN?: string | null;
   blogCoverAltTextEN?: string | null;
 
-  blogCategory: { id: string; name: string } | null;
+  blogCategory: ResolvedBlogCategory | null;
   seoAnalysis: SeoAnalysis | null;
   seoAnalysisEN: SeoAnalysis | null;
 
@@ -115,7 +123,7 @@ export const defaultState: AppState = {
   blogKeywords: '',
   blogTone: 'Professional & Informative',
   blogLength: 'Medium (1000 words)',
-  blogImageStyle: 'OpenAI Style (Clean, abstract, vibrant gradients, tech-focused)',
+  blogImageStyle: 'Editorial B2B (minimal cover, realistic inline, brandless)',
   blogContent: null,
   blogTitle: null,
   blogDescription: null,

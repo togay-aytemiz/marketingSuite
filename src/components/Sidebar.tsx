@@ -247,7 +247,15 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       ...prev,
       blogTopic: topic,
       blogKeywords: keywords,
-      blogCategory: categoryId ? selectedCategory : prev.blogCategory
+      blogCategory: categoryId && selectedCategory
+        ? {
+            id: selectedCategory.id,
+            name: selectedCategory.name,
+            resolvedBy: 'strategy-suggestion',
+            confidence: 'medium',
+            fallbackReason: null,
+          }
+        : prev.blogCategory
     }));
   };
 
@@ -291,14 +299,13 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       <div className={`w-80 bg-white border-r border-zinc-200 h-screen flex flex-col shrink-0 z-30 transition-opacity duration-300 ${isGenerating ? 'pointer-events-none opacity-60' : ''}`}>
         <SidebarHeader />
         <div className="p-4 space-y-6 flex-1 overflow-y-auto">
-          
-          {/* Content Strategy */}
+          {/* Article Setup */}
           <div className="space-y-3">
             <button 
               onClick={() => toggleSection('blogContent')}
               className="flex items-center justify-between w-full text-left group"
             >
-              <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Content Strategy</h3>
+              <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Article Setup</h3>
               <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${expandedSections.blogContent ? 'rotate-180' : ''}`} />
             </button>
             
@@ -306,12 +313,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
               <div className="space-y-4 pt-1">
                 <div className="space-y-1.5">
                   <div className="flex justify-between items-center">
-                    <label className="block text-[11px] font-medium text-zinc-500">Topic / Instruction</label>
+                    <label className="block text-xs font-medium text-zinc-600">Topic / Instruction</label>
                     <button
                       onClick={handleGenerateTopics}
-                      disabled={isGeneratingTopics || !openAiConfigured || (!state.productName && !state.description)}
-                      className="flex items-center text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                      title={openAiConfigured ? 'AI will suggest 5 topics based on Product Context' : 'Add OPENAI_API_KEY in .env.local to enable brainstorming'}
+                      disabled={isGeneratingTopics || !openAiConfigured}
+                      className="flex items-center text-xs font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2.5 py-1.5 rounded-md transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                      title={openAiConfigured ? 'AI will suggest 5 topics based on Sanity coverage and strategy context' : 'Add OPENAI_API_KEY in .env.local to enable brainstorming'}
                     >
                       {isGeneratingTopics ? (
                         <svg className="animate-spin mr-1 h-3 w-3 text-indigo-600" fill="none" viewBox="0 0 24 24">
@@ -329,14 +336,14 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     value={state.blogTopic}
                     onChange={handleChange}
                     className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none h-20"
-                    placeholder="e.g. We just released a new feature, write a post about it. (Leave blank for AI suggestion)"
+                    placeholder="e.g. WhatsApp müşteri adayı puanlama nasıl çalışır? Boş bırakırsan sistem en iyi sonraki konuyu seçer."
                   />
                   
                   {/* Topic Suggestions Dropdown */}
                   {topicIdeas.length > 0 && (
                     <div className="mt-2 border border-indigo-100 bg-indigo-50/30 rounded-lg overflow-hidden shadow-sm">
                       <div className="px-3 py-2 bg-indigo-50 border-b border-indigo-100 flex justify-between items-center">
-                        <span className="text-[10px] font-semibold text-indigo-800 uppercase tracking-wider">Suggested Topics</span>
+                        <span className="text-[11px] font-semibold text-indigo-800 uppercase tracking-wider">Suggested Topics</span>
                       </div>
                       <div className="max-h-48 overflow-y-auto">
                         {topicIdeas.map((idea, idx) => {
@@ -354,20 +361,20 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                               }`}>
                                 {idea.topic}
                               </div>
-                              <div className={`text-[10px] line-clamp-1 ${
+                              <div className={`text-[11px] line-clamp-1 ${
                                 isSelected ? 'text-indigo-600' : 'text-zinc-500'
                               }`}>
                                 Keywords: {idea.keywords}
                               </div>
                               {idea.categoryId && (
-                                <div className={`text-[10px] mt-1 ${
+                                <div className={`text-[11px] mt-1 ${
                                   isSelected ? 'text-indigo-700' : 'text-indigo-600'
                                 }`}>
                                   Category: {sanityCategoryOptions.find((category) => category.id === idea.categoryId)?.name || 'Auto'}
                                 </div>
                               )}
                               {(idea.reason || idea.categoryGap) && (
-                                <div className={`mt-2 space-y-1 rounded-md border px-2 py-2 text-[10px] leading-relaxed ${
+                                <div className={`mt-2 space-y-1 rounded-md border px-2 py-2 text-[11px] leading-relaxed ${
                                   isSelected
                                     ? 'border-indigo-200 bg-white/70 text-indigo-900'
                                     : 'border-indigo-100 bg-white/60 text-zinc-600'
@@ -398,14 +405,14 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-zinc-500">Additional Keywords (Optional)</label>
+                  <label className="block text-xs font-medium text-zinc-600">Additional Keywords (Optional)</label>
                   <input
                     type="text"
                     name="blogKeywords"
                     value={state.blogKeywords}
                     onChange={handleChange}
-                    className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors"
-                    placeholder="AI will auto-extract from Product Context"
+                    className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors"
+                    placeholder="İstersen boş bırak; sistem anahtar kelimeleri kendisi çıkarır"
                   />
                 </div>
                 {!openAiConfigured && (
@@ -415,25 +422,25 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
             )}
           </div>
 
-          {/* Writing Preferences */}
+          {/* Options */}
           <div className="space-y-3">
             <button 
               onClick={() => toggleSection('blogPreferences')}
               className="flex items-center justify-between w-full text-left group"
             >
-              <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Writing Preferences</h3>
+              <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Options</h3>
               <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${expandedSections.blogPreferences ? 'rotate-180' : ''}`} />
             </button>
             
             {expandedSections.blogPreferences && (
               <div className="space-y-4 pt-1">
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-zinc-500">Tone of Voice</label>
+                  <label className="block text-xs font-medium text-zinc-600">Tone of Voice</label>
                   <select
                     name="blogTone"
                     value={state.blogTone}
                     onChange={handleChange}
-                    className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
+                    className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
                     <option>Professional & Informative</option>
@@ -445,12 +452,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-zinc-500">Target Length</label>
+                  <label className="block text-xs font-medium text-zinc-600">Target Length</label>
                   <select
                     name="blogLength"
                     value={state.blogLength}
                     onChange={handleChange}
-                    className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
+                    className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
                     <option>Short (500 words)</option>
@@ -460,12 +467,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                 </div>
                 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-zinc-500">Language</label>
+                  <label className="block text-xs font-medium text-zinc-600">Language</label>
                   <select
                     name="language"
                     value={state.language}
                     onChange={handleChange}
-                    className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
+                    className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
                     <option value="EN">English</option>
@@ -475,19 +482,19 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                 </div>
 
                 <div className="space-y-1.5">
-                  <label className="block text-[11px] font-medium text-zinc-500">Image Style</label>
+                  <label className="block text-xs font-medium text-zinc-600">Image Style</label>
                   <select
                     name="blogImageStyle"
                     value={state.blogImageStyle}
                     onChange={handleChange}
-                    className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
+                    className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
-                    <option value="OpenAI Style (Clean, abstract, vibrant gradients, tech-focused)">OpenAI Style (Abstract, Gradients)</option>
-                    <option value="Minimalist (Lots of whitespace, simple geometry, muted colors)">Minimalist (Simple, Muted)</option>
-                    <option value="3D Isometric (Playful, colorful, detailed 3D renders)">3D Isometric (Playful)</option>
-                    <option value="Flat Illustration (Corporate memphis style, vector art)">Flat Illustration (Vector)</option>
-                    <option value="Photorealistic (High quality photography, natural lighting)">Photorealistic</option>
+                    <option value="Editorial B2B (minimal cover, realistic inline, brandless)">Editorial B2B (Recommended)</option>
+                    <option value="Minimal glassmorphism cover with realistic business photography inline">Minimal Cover + Realistic Inline</option>
+                    <option value="Professional editorial photography with natural light and restrained composition">Editorial Photography</option>
+                    <option value="Clean explainer cards on light neutral canvas with sparse iconography">Explainer Cards</option>
+                    <option value="Dark premium glass cover system with calm cobalt-indigo accents">Premium Glass Covers</option>
                   </select>
                 </div>
 
@@ -519,11 +526,11 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
           </div>
         </div>
         
-        <div className="p-4 border-t border-zinc-100 bg-white flex gap-2">
+        <div className="p-4 border-t border-zinc-100 bg-white space-y-3">
           <button
             onClick={onGenerate}
-            disabled={isGenerating || !openAiConfigured || (!state.productName && !state.blogTopic)}
-            className="flex-1 flex items-center justify-center px-4 py-3 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
+            disabled={isGenerating || !openAiConfigured}
+            className="w-full flex items-center justify-center px-4 py-3.5 border border-transparent rounded-2xl shadow-sm text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
           >
             {isGenerating ? (
               <span className="flex items-center">
@@ -531,12 +538,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                   <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"></circle>
                   <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path>
                 </svg>
-                Generating...
+                Generating draft...
               </span>
             ) : (
               <span className="flex items-center">
                 <PenTool className="w-4 h-4 mr-2" />
-                Generate Blog Post
+                Generate Publish-Ready Draft
               </span>
             )}
           </button>

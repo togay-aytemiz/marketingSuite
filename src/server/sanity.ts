@@ -6,6 +6,7 @@ import {
   normalizeBlogImageSlotId,
   type BlogInlineImagePlan,
 } from '../lib/blog-image-slots';
+import { normalizeEditorialMarkdown } from '../lib/blog-draft-media';
 
 export interface NormalizedSanitySlug {
   current: string;
@@ -211,7 +212,7 @@ function buildSeoDescription(description: string, maxLength = MAX_SEO_DESCRIPTIO
 }
 
 export function sanitizeBlogMarkdownForPublish(content: string) {
-  let sanitized = String(content || '');
+  let sanitized = normalizeEditorialMarkdown(content);
 
   // Remove JSON-LD script tags copied into the article body.
   sanitized = sanitized.replace(/<script\b[^>]*application\/ld\+json[^>]*>[\s\S]*?<\/script>/gi, '\n');

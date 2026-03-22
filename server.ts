@@ -24,6 +24,7 @@ import {
   generateTopicIdeas,
 } from './src/server/openai';
 import { fetchEditorialPlanningSnapshot } from './src/server/editorial-planner';
+import { normalizeCategoryOptions } from './src/lib/blog-category-resolution';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity, syncEditorialCategories } from './src/server/sanity';
 import { getStrategyContextSnapshot } from './src/server/strategy-context';
 
@@ -196,6 +197,17 @@ async function startServer() {
           editorialSnapshot = await fetchEditorialPlanningSnapshot(req.body.language);
         } catch (planningError) {
           console.warn('Editorial planning snapshot fetch failed, falling back to request payload.', planningError);
+        }
+      }
+
+      if (needsEditorialPlanning && status.sanity.configured) {
+        const effectiveCategories = normalizeCategoryOptions(
+          (editorialSnapshot?.sanityCategories || req.body.sanityCategories || []) as Array<{ id: string; name: string }>
+        );
+        if (effectiveCategories.length === 0) {
+          return res.status(409).json({
+            error: 'Sanity is configured but no editorial categories were resolved. Check category sync/publication before generating blog content.',
+          });
         }
       }
 

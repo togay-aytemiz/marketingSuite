@@ -205,6 +205,51 @@ Metin.
   assert.equal(sanitized.includes('Metin.'), true);
 });
 
+test('dedents uniformly indented markdown before sanity publish', () => {
+  const sanitized = sanitizeBlogMarkdownForPublish(`
+    Giris paragrafi.
+
+    ## Ara Baslik
+
+    Detay paragrafi.
+  `);
+
+  assert.equal(sanitized.startsWith('Giris paragrafi.'), true);
+  assert.equal(sanitized.includes('\n\n## Ara Baslik\n\n'), true);
+  assert.equal(sanitized.includes('    ## Ara Baslik'), false);
+});
+
+test('strips an outer markdown code fence before sanity publish', () => {
+  const sanitized = sanitizeBlogMarkdownForPublish(`
+\`\`\`markdown
+Giris paragrafi.
+
+## Ara Baslik
+
+Detay paragrafi.
+\`\`\`
+`);
+
+  assert.equal(sanitized.startsWith('Giris paragrafi.'), true);
+  assert.equal(sanitized.includes('```markdown'), false);
+  assert.equal(sanitized.includes('\n\n## Ara Baslik\n\n'), true);
+});
+
+test('strips a leading markdown code fence before sanity publish when the closing fence is missing', () => {
+  const sanitized = sanitizeBlogMarkdownForPublish(`
+\`\`\`markdown
+Giris paragrafi.
+
+## Ara Baslik
+
+Detay paragrafi.
+`);
+
+  assert.equal(sanitized.startsWith('Giris paragrafi.'), true);
+  assert.equal(sanitized.includes('```markdown'), false);
+  assert.equal(sanitized.includes('\n\n## Ara Baslik\n\n'), true);
+});
+
 test('rejects new publish when cover image asset is missing', async () => {
   const originalFetch = global.fetch;
   const calls: string[] = [];

@@ -1,6 +1,13 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getGeminiApiKey } from "./env";
 import { getStrategyContextSnapshot } from "./strategy-context";
+import { sanitizeEditorialPromptText } from "../lib/blog-draft-media";
+import {
+  getCoverImageHouseStyleBullets,
+  getCoverImageHouseStyleText,
+  getInlineImageHouseStyleBullets,
+  getInlineImageHouseStyleText,
+} from "../lib/editorial-cover-style";
 
 export interface SanityPostReference {
   title: string;
@@ -65,6 +72,14 @@ const RELEVANCE_STOP_WORDS = new Set([
 
 function normalizeWhitespace(value: string) {
   return value.replace(/\s+/g, " ").trim();
+}
+
+function stripImageSeedPrefix(value: string) {
+  return normalizeWhitespace(
+    value
+      .replace(/^editorial photo:\s*/i, "")
+      .replace(/^explainer card:\s*/i, "")
+  );
 }
 
 function parseDateScore(value?: string) {
@@ -293,7 +308,12 @@ export function getAiInstance() {
 }
 
 export function buildEditorialBlogImagePrompt(prompt: string, isCover: boolean = false) {
-  const normalizedPrompt = normalizeWhitespace(prompt || "Professional B2B SaaS editorial visual");
+  const rawPrompt = normalizeWhitespace(prompt || "Professional B2B SaaS editorial visual");
+  const explicitExplainer = /^explainer card:\s*/i.test(rawPrompt);
+  const explicitEditorialPhoto = /^editorial photo:\s*/i.test(rawPrompt);
+  const normalizedPrompt = sanitizeEditorialPromptText(
+    stripImageSeedPrefix(rawPrompt) || "Professional B2B SaaS editorial visual"
+  );
   const shotDirection = isCover
     ? "Create a refined editorial hero image with strong composition for a blog cover."
     : "Create an elegant inline editorial image that supports one section without overwhelming the article.";
@@ -302,7 +322,39 @@ export function buildEditorialBlogImagePrompt(prompt: string, isCover: boolean =
     ? "Use one dominant focal subject with subtle supporting forms, generous breathing room, and premium art direction."
     : "Use a single focal subject, negative space, and a restrained supporting composition.";
 
-  return `${normalizedPrompt}. ${shotDirection} ${compositionDirection} Keep the result minimal, elegant, professional, and enterprise-ready. Prefer an abstract business metaphor, architectural still life, or premium object study over literal scenes. Use calm premium lighting, tactile materials, a controlled palette, and balanced depth. Absolutely no visible text, no text, no words, no letters, no numbers, no labels, no logos, no watermarks, and no brand marks. No screenshots, no UI mockups, no dashboard panels, and no interface overlays. Avoid cartoon characters, childish illustration, playful mascots, emoji-like icons, toy-like 3D objects, noisy infographic layouts, collage scenes, stock-photo clichés, and cluttered compositions. If people are not essential, do not include people.`;
+  const materialDirection = isCover
+    ? "Use subtle glassmorphism, frosted translucent materials, and soft studio lighting."
+    : explicitExplainer
+      ? "Create a clean simplified explainer card with restrained blue accents, sparse iconography, quiet depth, and a brandless editorial finish."
+      : "Prefer realistic editorial photography, believable professional environments, and calm natural lighting.";
+
+  const densityDirection = isCover
+    ? "Limit the scene to one hero object and at most 1-2 small supporting glass icons or cards. Avoid dense icon fields, busy overlays, neon chaos, brand logos, and recognizable platform marks."
+    : "Keep supporting details sparse and avoid noisy icon clusters, glossy 3D fantasy scenes, holographic interfaces, and infographic density.";
+
+  const houseStyleDirection = isCover
+    ? getCoverImageHouseStyleText()
+    : getInlineImageHouseStyleText();
+
+  const peopleDirection = isCover
+    ? "No people."
+    : explicitExplainer
+      ? "No people."
+      : "Default to no people unless the section truly needs a believable professional or customer scene.";
+
+  const subjectDirection = isCover
+    ? `The hero subject must clearly express this idea: ${normalizedPrompt}. Avoid empty generic glass tiles or meaningless abstract shapes. Use one brandless business metaphor or signal object that makes the topic legible at a glance.`
+    : explicitExplainer
+      ? `Turn this concept into a concise brandless explainer visual: ${normalizedPrompt}. Show 2-4 simple objects or modules only, with no text labels.`
+      : `Show this scene as believable publication-grade business photography: ${normalizedPrompt}. Use a real environment and natural physical details, not a fantasy tech scene.`;
+
+  const realismDirection = isCover
+    ? "Keep the visual premium, minimal, and enterprise-ready."
+    : explicitEditorialPhoto || !explicitExplainer
+      ? "Keep the result realistic, editorial, and professionally art-directed."
+      : "Keep the result minimal, diagrammatic, and visually calm.";
+
+  return `${normalizedPrompt}. ${shotDirection} ${compositionDirection} ${materialDirection} ${densityDirection} ${houseStyleDirection} ${peopleDirection} ${realismDirection} ${subjectDirection} Use a controlled palette, balanced depth, generous negative space, and publication-grade realism. Absolutely no visible text, no text, no words, no letters, no numbers, no labels, no logos, no watermarks, and no brand marks. Do not render official app logos, social platform glyphs, messaging app icons, or branded interface chrome. Do not show Instagram, WhatsApp, Facebook, Messenger, or other recognizable platform branding. No screenshots, no UI mockups, no dashboard panels, no speech-bubble overlays, and no interface overlays. Avoid cartoon characters, childish illustration, playful mascots, emoji-like icons, toy-like 3D objects, noisy infographic layouts, collage scenes, stock-photo clichés, and cluttered compositions.`;
 }
 
 function parseGeneratedImageDataUrl(imageDataUrl: string) {
@@ -339,10 +391,14 @@ async function reviewGeneratedBlogImage(imageDataUrl: string, isCover: boolean) 
 
 Acceptable only if ALL of these are true:
 - no visible text, letters, numbers, labels, logos, or watermarks
+- no recognizable platform logos, social app marks, or messaging brand icons
 - no screenshot, no UI mockup, no dashboard panel
 - elegant, minimal, editorial, and professional
 - not cluttered, not noisy, not infographic-like
 - not childish, cartoonish, or toy-like
+- for cover images: one dominant subject with at most 1-2 small supporting accents, not a crowded scene
+- for cover images: dark graphite or deep navy base, cobalt-indigo glow, frosted glass tile/panel language, and no people
+- for inline images: either realistic editorial photography or a clean simplified explainer card, never a childish or fantastical 3D scene
 
 Return JSON only. Set "acceptable" to false if any rule is violated.`,
           },
@@ -1116,9 +1172,13 @@ BLOG CONTENT:
 ${postData.content}
 
 INSTRUCTIONS:
-1. "coverImagePrompt": Write a highly detailed, descriptive image generation prompt in English for the blog's main cover image. CRITICAL: The subject of the image MUST visually represent the "title" and "description" (e.g., if the post is about WhatsApp, include 3D chat bubbles; if about analytics, include 3D charts). IMPORTANT: The cover image MUST ALWAYS be in this exact style: "Modern 3D isometric or flat-lay tech illustration, soft frosted glassmorphism effects, floating 3D UI elements, deep blue and purple gradient background, soft studio lighting, clean, minimalist, corporate SaaS aesthetic, high-quality 3D render style." Do not show text, screenshots, or UI mockups directly.
+1. "coverImagePrompt": Write a highly detailed, descriptive image generation prompt in English for the blog's main cover image. CRITICAL: The image MUST visually represent the "title" and "description" without using literal app logos or brand marks. IMPORTANT: Every cover image MUST follow this exact house style and stay in the same visual family:
+${getCoverImageHouseStyleBullets()}
+Do not show text, screenshots, UI mockups, dashboard panels, speech bubbles, or recognizable platform logos.
 2. "coverAltText": Write a concise, SEO-optimized alt text for the cover image in the target language (${isBoth ? 'Turkish' : targetLang}). CRITICAL: Keep it very short, maximum 5-10 words. Do not write full sentences or long descriptions.
-3. "inlineImages": For each [IMAGE_PLACEHOLDER_X] found in the content, write a highly detailed, descriptive image generation prompt in English. CRITICAL: The images do NOT have to be literal or concrete; they can be abstract, conceptual, or metaphorical representations as long as they are highly meaningful and capture the essence of the surrounding text. The prompt MUST strictly adhere to this visual style: "${imageStyle}". Do not show screenshots or UI mockups directly.
+3. "inlineImages": For each [IMAGE_PLACEHOLDER_X] found in the content, write a highly detailed, descriptive image generation prompt in English. Prefer realistic editorial photography for industry, people, customer, or workflow sections. Use a clean simplified explainer card only for framework, requirements, or comparison sections. IMPORTANT: Inline images must follow this house style:
+${getInlineImageHouseStyleBullets()}
+The prompt MUST also respect this user-requested direction: "${imageStyle}". Do not show screenshots or UI mockups directly.
 
 Return a JSON object with "coverImagePrompt", "coverAltText", and an array "inlineImages" containing objects with "placeholder" (e.g., "[IMAGE_PLACEHOLDER_1]") and "prompt".
 `;
