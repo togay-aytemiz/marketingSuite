@@ -2,6 +2,14 @@ import { getOpenAiApiKey } from './env';
 import { getStrategyContextSnapshot } from './strategy-context';
 import { selectRelevantSanityPosts } from './gemini';
 import {
+  buildInternalBlogUrl,
+  getLanguageName,
+  getPrimaryLanguage,
+  getSingleOutputLanguageName,
+  isDualLanguage,
+  normalizeAppLanguage,
+} from '../lib/app-language';
+import {
   buildInlineImagePlacementSummaries,
   sanitizeEditorialPromptText,
   stripOuterMarkdownFence,
@@ -28,6 +36,7 @@ import {
 } from '../lib/blog-image-slots';
 export { buildBlogImageSlotMarker, extractBlogImageSlotIds } from '../lib/blog-image-slots';
 export { ensureFinalCallToAction } from '../lib/blog-call-to-action';
+export { buildInternalBlogUrl } from '../lib/app-language';
 
 export interface SanityPostReference {
   title: string;
@@ -849,6 +858,12 @@ async function runOpenAiJson<T>(config: OpenAiChatConfig): Promise<T | null> {
   return parseJsonSafely<T>(raw);
 }
 
+function buildInternalPostsList(posts: SanityPostReference[], language: 'TR' | 'EN') {
+  return posts
+    .map((post) => `- Title: "${post.title}", URL: "${buildInternalBlogUrl(post.slug, language)}"`)
+    .join('\n');
+}
+
 async function ensureTitleWithinLimit(title: string, language: 'TR' | 'EN') {
   const normalized = normalizeWhitespace(title);
   if (!normalized) {
@@ -883,6 +898,76 @@ ${normalized}`,
   }
 
   return normalized;
+}
+
+async function translateBlogPostToEnglish(input: {
+  productName: string;
+  featureName: string;
+  targetAudience: string;
+  description: string;
+  topic: string;
+  keywords: string;
+  tone: string;
+  length: string;
+  title: string;
+  excerpt: string;
+  content: string;
+  coverAltText: string;
+}) {
+  return runOpenAiJson<{
+    titleEN: string;
+    descriptionEN: string;
+    contentEN: string;
+    coverAltTextEN: string;
+  }>({
+    schemaName: 'blog_post_translation_en',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        titleEN: { type: 'string' },
+        descriptionEN: { type: 'string' },
+        contentEN: { type: 'string' },
+        coverAltTextEN: { type: 'string' },
+      },
+      required: ['titleEN', 'descriptionEN', 'contentEN', 'coverAltTextEN'],
+    },
+    temperature: 0.3,
+    prompt: `
+You are a senior SEO translator and B2B SaaS editor.
+Translate/adapt this Turkish SaaS blog draft into English.
+
+PRODUCT CONTEXT:
+Product Name: ${input.productName || 'Our Product'}
+Feature/Focus Area: ${input.featureName || 'General'}
+Target Audience: ${input.targetAudience || 'General audience'}
+Product Description: ${input.description || 'A modern software solution.'}
+Topic/Instruction: ${input.topic || 'Not provided'}
+Keywords Input: ${input.keywords || 'Not provided'}
+Tone: ${input.tone}
+Length: ${input.length}
+${QUALY_SITE_GUARDRAILS}
+
+SOURCE TURKISH FIELDS:
+Title: ${input.title}
+Description: ${input.excerpt}
+Cover Alt Text: ${input.coverAltText}
+
+Content:
+${input.content}
+
+Rules:
+- Return fluent English, not literal word-for-word translation.
+- Keep the SEO intent, structure, and meaning intact.
+- titleEN must be <= ${MAX_SEO_TITLE_LENGTH} chars.
+- descriptionEN must be <= 160 chars.
+- Preserve markdown headings, bullets, FAQ structure, and spacing.
+- Preserve every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
+- Keep product names and proper nouns unchanged unless an English equivalent already exists.
+- Keep site-relative links. If a Turkish internal blog link uses /blog/slug, rewrite it to /en/blog/slug.
+- Do not add HTML, code fences, JSON-LD, script tags, or commentary.
+`,
+  });
 }
 
 export async function enhanceProductDetails(
@@ -920,6 +1005,7 @@ export async function generateMarketingCopy(
   tone: string,
   language: string
 ) {
+  const outputLanguage = getSingleOutputLanguageName(language);
   return runOpenAiJson<{ headline: string; subheadline: string; cta: string }>({
     schemaName: 'marketing_copy',
     schema: {
@@ -940,7 +1026,7 @@ Feature Name: ${featureName || 'General'}
 Description: ${description || 'A modern software solution'}
 Campaign Type: ${campaignType}
 Tone: ${tone}
-Language: ${language === 'TR' ? 'Turkish' : 'English'}
+Language: ${outputLanguage}
 
 Rules:
 - headline: max 8 words
@@ -959,6 +1045,7 @@ export async function generateCopyIdeas(
   tone: string,
   language: string
 ) {
+  const outputLanguage = getSingleOutputLanguageName(language);
   return runOpenAiJson<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>({
     schemaName: 'marketing_copy_ideas',
     schema: {
@@ -979,7 +1066,7 @@ Feature Name: ${featureName || 'New Feature'}
 Description: ${description || 'Modern software application'}
 Campaign Type: ${campaignType}
 Tone: ${tone}
-Language: ${language === 'TR' ? 'Turkish' : 'English'}
+Language: ${outputLanguage}
 
 Return 3 options for each field.
 `,
@@ -1051,16 +1138,15 @@ export const generateBlogPost = async (
   recentPosts: RecentTopicReference[] = [],
   sanityCategories: { id: string; name: string }[] = []
 ): Promise<BlogPostResponse | null> => {
-  const isBoth = language === 'BOTH';
-  const primaryLanguage = language === 'EN' ? 'EN' : 'TR';
-  const targetLang = isBoth ? 'Turkish and English' : language === 'TR' ? 'Turkish' : 'English';
+  const normalizedLanguage = normalizeAppLanguage(language, 'TR');
+  const isBoth = isDualLanguage(normalizedLanguage);
+  const primaryLanguage = getPrimaryLanguage(normalizedLanguage);
+  const targetLang = getLanguageName(primaryLanguage);
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
   const portfolioStageInstruction = buildPortfolioStageInstruction(recentPosts.length);
-  const titleGuidanceInstruction = isBoth
-    ? `${buildSearchIntentTitleGuidance('TR')}\n${buildSearchIntentTitleGuidance('EN')}`
-    : buildSearchIntentTitleGuidance(primaryLanguage);
+  const titleGuidanceInstruction = buildSearchIntentTitleGuidance(primaryLanguage);
 
   const schema: Record<string, unknown> = {
     type: 'object',
@@ -1080,14 +1166,6 @@ export const generateBlogPost = async (
       'content',
     ],
   };
-
-  if (isBoth) {
-    (schema.properties as Record<string, unknown>).titleEN = { type: 'string' };
-    (schema.properties as Record<string, unknown>).descriptionEN = { type: 'string' };
-    (schema.properties as Record<string, unknown>).slugEN = { type: 'string' };
-    (schema.properties as Record<string, unknown>).contentEN = { type: 'string' };
-    (schema.required as string[]).push('titleEN', 'descriptionEN', 'slugEN', 'contentEN');
-  }
 
   const postData = await runOpenAiJson<BlogPostResponse>({
     schemaName: 'blog_post_bundle',
@@ -1150,6 +1228,7 @@ CRITICAL RULES:
    - Titles must reflect a clear search intent, not a generic announcement.
    - Prefer specific patterns such as problem/solution, how-to, comparison, checklist, template, or use-case framing.
    - Avoid generic titles like "ürün notu", "product update", or "feature news" unless the user explicitly asked for release notes.
+13. If the broader workflow later needs an English version, that translation will happen in a separate call. This step must still return only the primary ${targetLang} fields.
 `,
   });
 
@@ -1157,7 +1236,7 @@ CRITICAL RULES:
     return null;
   }
 
-  const shouldNormalizeTurkish = language === 'TR' || language === 'BOTH';
+  const shouldNormalizeTurkish = primaryLanguage === 'TR';
 
   if (shouldNormalizeTurkish) {
     postData.title = normalizeTurkishMarketingText(postData.title);
@@ -1168,28 +1247,12 @@ CRITICAL RULES:
   }
 
   postData.title = await ensureTitleWithinLimit(postData.title, primaryLanguage);
-  if (postData.titleEN) {
-    postData.titleEN = cleanGeneratedMarkdownArtifacts(postData.titleEN);
-    postData.titleEN = await ensureTitleWithinLimit(postData.titleEN, 'EN');
-  }
-  if (postData.descriptionEN) {
-    postData.descriptionEN = cleanGeneratedMarkdownArtifacts(postData.descriptionEN);
-  }
-  if (postData.contentEN) {
-    postData.contentEN = cleanGeneratedMarkdownArtifacts(postData.contentEN);
-  }
 
   if (!normalizeWhitespace(postData.slug)) {
     postData.slug = slugifyText(postData.title);
   }
-  if (postData.titleEN && !normalizeWhitespace(String(postData.slugEN || ''))) {
-    postData.slugEN = slugifyText(postData.titleEN);
-  }
 
   postData.content = ensureFinalCallToAction(postData.content, primaryLanguage, productName, featureName);
-  if (postData.contentEN) {
-    postData.contentEN = ensureFinalCallToAction(postData.contentEN, 'EN', productName, featureName);
-  }
 
   const imagePlanSchema: Record<string, unknown> = {
     type: 'object',
@@ -1228,11 +1291,11 @@ Generate the image plan for the article below.
 
 Title: ${postData.title}
 Description: ${postData.description}
-Language: ${targetLang}
+Language: ${isBoth ? 'Turkish source article with separate English translation' : targetLang}
 ${buildBlogImagePromptPolicy(imageStyle)}
 
 ARTICLE CONTEXT SNAPSHOT:
-${buildImagePlanContextSnapshot(postData.content, postData.contentEN)}
+${buildImagePlanContextSnapshot(postData.content)}
 
 Return:
 - coverImagePrompt: one strong cover prompt
@@ -1274,8 +1337,36 @@ Rules:
   );
 
   if (isBoth) {
+    const translated = await translateBlogPostToEnglish({
+      productName,
+      featureName,
+      targetAudience,
+      description,
+      topic,
+      keywords,
+      tone,
+      length,
+      title: postData.title,
+      excerpt: postData.description,
+      content: postData.content,
+      coverAltText: postData.coverAltText,
+    });
+
+    if (!translated) {
+      return null;
+    }
+
+    postData.titleEN = await ensureTitleWithinLimit(cleanGeneratedMarkdownArtifacts(translated.titleEN), 'EN');
+    postData.descriptionEN = cleanGeneratedMarkdownArtifacts(translated.descriptionEN);
+    postData.contentEN = ensureFinalCallToAction(
+      cleanGeneratedMarkdownArtifacts(translated.contentEN),
+      'EN',
+      productName,
+      featureName
+    );
+    postData.slugEN = slugifyText(postData.titleEN);
     postData.coverImagePromptEN = postData.coverImagePrompt;
-    postData.coverAltTextEN = cleanGeneratedMarkdownArtifacts(imagePlan?.coverAltText || 'Blog cover image');
+    postData.coverAltTextEN = cleanGeneratedMarkdownArtifacts(translated.coverAltTextEN);
   }
 
   postData.category = resolveCategoryMeta(postData.categoryId, sanityCategories, recentPosts);
@@ -1295,7 +1386,8 @@ export const addInternalLinks = async (
     return currentContent;
   }
 
-  const postsList = selectedPosts.map((p) => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
+  const targetLanguage = getPrimaryLanguage(language);
+  const postsList = buildInternalPostsList(selectedPosts, targetLanguage);
   const strategyContextInstruction = buildStrategyContextInstruction();
 
   return runOpenAiChat({
@@ -1304,7 +1396,7 @@ export const addInternalLinks = async (
 You are an expert SEO content editor.
 Add natural internal links to this markdown blog post.
 
-Language: ${language === 'TR' ? 'Turkish' : 'English'}
+Language: ${getLanguageName(targetLanguage)}
 ${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
 
@@ -1316,7 +1408,7 @@ ${currentContent}
 
 Rules:
 - Add 1-3 links only when context is relevant.
-- Use markdown links: [anchor](/blog/slug).
+- Use markdown links with the exact provided site-relative URLs.
 - Keep all formatting and preserve every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
 - If any legacy [IMAGE_PROMPT: ...] token appears, leave it untouched. Do not invent new ones.
 - Return only the full revised markdown.
@@ -1326,10 +1418,10 @@ Rules:
       return result;
     }
 
-    const cleaned = language === 'TR'
+    const cleaned = targetLanguage === 'TR'
       ? normalizeTurkishMarketingText(result)
       : cleanGeneratedMarkdownArtifacts(result);
-    return ensureFinalCallToAction(cleaned, language === 'TR' ? 'TR' : 'EN', productName || 'Qualy', featureName || '');
+    return ensureFinalCallToAction(cleaned, targetLanguage, productName || 'Qualy', featureName || '');
   });
 };
 
@@ -1343,6 +1435,7 @@ export const editBlogPost = async (
   language: string,
   sanityPosts?: SanityPostReference[]
 ): Promise<string | null> => {
+  const targetLanguage = getPrimaryLanguage(language);
   let internalLinksInstruction = '';
   if (sanityPosts && sanityPosts.length > 0) {
     const selectedPosts = selectRelevantSanityPosts(
@@ -1351,7 +1444,7 @@ export const editBlogPost = async (
       14
     );
     if (selectedPosts.length > 0) {
-      const postsList = selectedPosts.map((p) => `- Title: "${p.title}", URL: "/blog/${p.slug}"`).join('\n');
+      const postsList = buildInternalPostsList(selectedPosts, targetLanguage);
       internalLinksInstruction = `
 Optional Internal Linking Targets:
 ${postsList}
@@ -1367,7 +1460,7 @@ ${postsList}
 You are an expert SEO copywriter and editor.
 Revise the markdown blog based on the user's instruction.
 
-Language: ${language === 'TR' ? 'Turkish' : 'English'}
+Language: ${getLanguageName(targetLanguage)}
 Product Name: ${productName || 'Our Product'}
 Feature: ${featureName || 'General'}
 Target Audience: ${targetAudience || 'General audience'}
@@ -1394,10 +1487,10 @@ ${internalLinksInstruction}
       return result;
     }
 
-    const cleaned = language === 'TR'
+    const cleaned = targetLanguage === 'TR'
       ? normalizeTurkishMarketingText(result)
       : cleanGeneratedMarkdownArtifacts(result);
-    return ensureFinalCallToAction(cleaned, language === 'TR' ? 'TR' : 'EN', productName, featureName);
+    return ensureFinalCallToAction(cleaned, targetLanguage, productName, featureName);
   });
 };
 
@@ -1419,7 +1512,7 @@ export const generateSocialPosts = async (
     prompt: `
 Generate promotional social posts for this blog.
 
-Language: ${language === 'TR' ? 'Turkish' : 'English'}
+Language: ${getSingleOutputLanguageName(language)}
 Blog Content (excerpt):
 ${String(blogContent || '').slice(0, 3500)}
 
@@ -1445,8 +1538,9 @@ export const generateTopicIdeas = async (
   const recencyInstruction = buildRecentPostsInstruction(recentPosts, recentPostTitles, 12);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
   const portfolioStageInstruction = buildPortfolioStageInstruction(recentPosts.length);
-  const shouldNormalizeTurkish = language === 'TR' || language === 'BOTH';
-  const titleGuidanceInstruction = buildSearchIntentTitleGuidance(language === 'EN' ? 'EN' : 'TR');
+  const primaryLanguage = getPrimaryLanguage(language);
+  const shouldNormalizeTurkish = primaryLanguage === 'TR';
+  const titleGuidanceInstruction = buildSearchIntentTitleGuidance(primaryLanguage);
 
   const payload = await runOpenAiJson<{ items: TopicIdeaSuggestion[] }>({
     schemaName: 'topic_ideas',
@@ -1484,7 +1578,7 @@ Product Name: ${productName || 'Not provided'}
 Feature Name: ${featureName || 'Not provided'}
 Target Audience: ${targetAudience || 'Not provided'}
 Description: ${description || 'Not provided'}
-Language: ${language === 'EN' ? 'English' : 'Turkish'}
+Language: ${getSingleOutputLanguageName(language)}
 ${strategyContextInstruction}
 ${recencyInstruction}
 ${categoryDistributionInstruction}

@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildInternalBlogUrl,
   buildSearchIntentTitleGuidance,
   buildImagePlanContextSnapshot,
   buildBlogImageSlotMarker,
@@ -11,6 +12,7 @@ import {
   ensureFinalCallToAction,
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
+  generateBlogPost,
   normalizeTopicIdeaCandidate,
   normalizeTurkishTextQuality,
   resolveCategoryId,
@@ -199,6 +201,101 @@ test('builds category distribution using categoryId even when category names dif
 
   assert.equal(crmIndex < salesIndex, true);
   assert.equal(salesIndex < msgIndex, true);
+});
+
+test('builds english internal links under /en/blog', () => {
+  assert.equal(buildInternalBlogUrl('sales-automation', 'TR'), '/blog/sales-automation');
+  assert.equal(buildInternalBlogUrl('sales-automation', 'EN'), '/en/blog/sales-automation');
+});
+
+test('generateBlogPost uses a second translation call for BOTH language mode', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+  const schemas: Array<Record<string, unknown> | null> = [];
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callIndex += 1;
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+    schemas.push((body?.response_format?.json_schema?.schema as Record<string, unknown>) || null);
+
+    let content = '';
+    if (callIndex === 1) {
+      content = JSON.stringify({
+        title: 'Yapay Zeka ile Musteri Adayi Onceliklendirme',
+        description: 'Satis ekipleri icin hizli onceliklendirme rehberi.',
+        slug: 'yapay-zeka-musteri-adayi-onceliklendirme',
+        categoryId: null,
+        content: 'Giris.\n\n## Skorlama\n\nDetay.\n\n<!-- BLOG_IMAGE:image-1 -->',
+      });
+    } else if (callIndex === 2) {
+      content = JSON.stringify({
+        coverImagePrompt: 'Lead scoring dashboard for revenue teams',
+        coverAltText: 'Musteri adayi onceliklendirme gorseli',
+        inlineImages: [
+          {
+            slotId: 'image-1',
+            prompt: 'Editorial photo: sales team reviewing lead scores',
+            altText: 'Skorlama paneli',
+          },
+        ],
+      });
+    } else if (callIndex === 3) {
+      content = JSON.stringify({
+        titleEN: 'AI Lead Prioritization for Revenue Teams',
+        descriptionEN: 'A practical guide to prioritizing leads with AI.',
+        contentEN: 'Intro.\n\n## Scoring\n\nDetails.\n\n<!-- BLOG_IMAGE:image-1 -->',
+        coverAltTextEN: 'Lead prioritization dashboard',
+      });
+    } else {
+      throw new Error(`Unexpected OpenAI call count: ${callIndex}`);
+    }
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateBlogPost(
+    'Qualy',
+    'Lead Scoring',
+    'Sales teams',
+    'AI sales assistant',
+    'Yapay zeka destekli satis surecleri',
+    'yapay zeka, musteri adayi',
+    'Professional & Informative',
+    'Medium (1000 words)',
+    'BOTH',
+    'Editorial B2B (minimal cover, realistic inline, brandless)'
+  );
+
+  assert.equal(callIndex, 3);
+  assert.equal(Array.isArray(schemas[0]?.required), true);
+  assert.equal((schemas[0]?.required as string[]).includes('titleEN'), false);
+  assert.match(prompts[0] || '', /Language:\s+Turkish/);
+  assert.doesNotMatch(prompts[0] || '', /Language:\s+Turkish and English/);
+  assert.match(prompts[2] || '', /Translate\/adapt this Turkish SaaS blog draft into English/i);
+  assert.equal(result?.titleEN, 'AI Lead Prioritization for Revenue Teams');
+  assert.equal(result?.coverAltTextEN, 'Lead prioritization dashboard');
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
 });
 
 test('builds a compact image plan context snapshot instead of embedding full article markdown', () => {

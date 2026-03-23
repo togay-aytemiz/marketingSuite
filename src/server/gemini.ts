@@ -1,6 +1,7 @@
 import { GoogleGenAI, Type } from "@google/genai";
 import { getGeminiApiKey } from "./env";
 import { getStrategyContextSnapshot } from "./strategy-context";
+import { getSingleOutputLanguageName } from "../lib/app-language";
 import { sanitizeEditorialPromptText } from "../lib/blog-draft-media";
 import {
   getCoverImageHouseStyleBullets,
@@ -685,6 +686,7 @@ export const buildPrompt = (
   userComment?: string,
   referenceImage?: string | null
 ): string => {
+  const outputLanguage = getSingleOutputLanguageName(language);
   const variationStyles = [
     "Clean, professional, and conversion-focused. Minimalist layout with clear hierarchy.",
     "Bold, modern, and energetic. Perfect for social media feeds. High contrast and dynamic composition.",
@@ -800,7 +802,7 @@ export const buildPrompt = (
   1. Use the provided screenshot(s) ONLY as a loose layout and content reference.
   2. REDRAW and RE-IMAGINE the UI. DO NOT just copy-paste the raw screenshot. Make it look like a Dribbble-quality, ultra-premium SaaS interface.
   3. EXTREME SIMPLIFICATION: The original screenshot has too much text and is too complex. Abstract it heavily. Remove unnecessary details, sidebars, or dense text blocks. Focus ONLY on the core feature. Use simple shapes, icons, or very short, punchy dummy text. Less reading, more visual impact. The UI should look clean and spacious.
-  4. LANGUAGE ENFORCEMENT: ALL text visible inside the reimagined UI mockups MUST be in ${language === 'TR' ? 'Turkish' : 'English'}. Translate any English text from the original screenshot into ${language === 'TR' ? 'Turkish' : 'English'}.
+  4. LANGUAGE ENFORCEMENT: ALL text visible inside the reimagined UI mockups MUST be in ${outputLanguage}. Translate any English text from the original screenshot into ${outputLanguage}.
   5. The primary goal is to drive clicks to the CTA button. Make the CTA prominent.
   6. MAKE IT PUNCHY: The overall visual should be striking and immediately understandable. Don't clutter the canvas. Focus on a single strong message and a beautiful, simplified UI representation.`;
   } else {
@@ -811,7 +813,7 @@ export const buildPrompt = (
   3. Create a clean, minimal, and highly engaging composition. It must be a "scroll-stopper" that immediately grabs attention.
   4. Use soft, premium backgrounds (e.g., smooth, subtle gradients that match the brand color or clean light/dark themes).
   5. Do NOT clutter the visual. Keep it extremely spacious, elegant, and focused on the core message.
-  6. LANGUAGE ENFORCEMENT: ALL text visible inside the visual MUST be in ${language === 'TR' ? 'Turkish' : 'English'}.
+  6. LANGUAGE ENFORCEMENT: ALL text visible inside the visual MUST be in ${outputLanguage}.
   7. The primary goal is to drive clicks to the CTA button. Make the CTA prominent.`;
   }
 
@@ -830,7 +832,7 @@ export const buildPrompt = (
   Feature: ${featureName || 'New Feature'}
   Description: ${description || 'Modern software application'}
   Brand Color: ${brandColor}
-  Language for ALL text (including UI elements): ${language === 'TR' ? 'Turkish' : 'English'}
+  Language for ALL text (including UI elements): ${outputLanguage}
   Campaign Focus / Theme: ${campaignFocus || 'General product promotion'}
   Custom Instructions: ${customInstruction || 'None'}
   

@@ -4,7 +4,8 @@ import { VisualPreview } from './components/VisualPreview';
 import { BlogPreview } from './components/BlogPreview';
 import { SettingsModal } from './components/SettingsModal';
 import { IntegrationSettingsModal } from './components/SanitySettingsModal';
-import { AppState, defaultState } from './types';
+import { AppState } from './types';
+import { buildPersistedAppState, hydrateAppState } from './lib/app-state';
 import { extractColorPalette, generateMarketingCopy, generateFinalVisual } from './services/gemini';
 import { Settings, PenTool, Image as ImageIcon, Database } from 'lucide-react';
 import {
@@ -23,52 +24,10 @@ export default function App() {
 const STORAGE_KEY = 'marketing_suite_state';
 
 function MainApp() {
-  const [state, setState] = useState<AppState>(() => {
-    const saved = localStorage.getItem(STORAGE_KEY);
-    if (saved) {
-      try {
-        const parsed = JSON.parse(saved);
-        return { 
-          ...defaultState, 
-          ...parsed, 
-          images: [], 
-          finalVisuals: [null, null, null, null], 
-          blogContent: null, 
-          seoAnalysis: null,
-          referenceImage: null
-        };
-      } catch (e) {
-        return defaultState;
-      }
-    }
-    return defaultState;
-  });
+  const [state, setState] = useState<AppState>(() => hydrateAppState(localStorage.getItem(STORAGE_KEY)));
 
   useEffect(() => {
-    const stateToSave = {
-      productName: state.productName,
-      featureName: state.featureName,
-      targetAudience: state.targetAudience,
-      description: state.description,
-      brandColor: state.brandColor,
-      autoBrandColor: state.autoBrandColor,
-      autoInternalLinks: state.autoInternalLinks,
-      language: state.language,
-      tone: state.tone,
-      blogTone: state.blogTone,
-      blogLength: state.blogLength,
-      blogKeywords: state.blogKeywords,
-      blogTopic: state.blogTopic,
-      activeModule: state.activeModule,
-      aspectRatio: state.aspectRatio,
-      mode: state.mode,
-      designStyle: state.designStyle,
-      campaignType: state.campaignType,
-      headline: state.headline,
-      subheadline: state.subheadline,
-      cta: state.cta,
-    };
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(stateToSave));
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(buildPersistedAppState(state)));
   }, [state]);
 
   const [isGenerating, setIsGenerating] = useState(false);

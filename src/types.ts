@@ -1,4 +1,5 @@
 import type { BlogInlineImagePlan } from './lib/blog-image-slots';
+import type { AppLanguage } from './lib/app-language';
 
 export interface SeoAnalysis {
   score: number;
@@ -48,7 +49,7 @@ export interface AppState {
   tone: string;
   designStyle: string;
   mode: string;
-  language: string;
+  language: AppLanguage;
   customInstruction: string;
   finalVisuals: (string | null)[];
 
@@ -114,7 +115,7 @@ export const defaultState: AppState = {
   tone: 'Professional',
   designStyle: 'Clean SaaS',
   mode: 'Clean Screenshot Highlight',
-  language: 'TR',
+  language: 'BOTH',
   customInstruction: '',
   finalVisuals: [null, null, null, null],
 
