@@ -378,12 +378,19 @@ test('generateBlogPost uses a second translation call for BOTH language mode', a
 
     let content = '';
     if (callIndex === 1) {
+      const longDraft = [
+        'Giris.',
+        '',
+        '## Skorlama',
+        '',
+        `${Array.from({ length: 1250 }, () => 'detay').join(' ')} uygulanabilir ornekler ve operasyon notlari.`,
+      ].join('\n');
       content = JSON.stringify({
         title: 'Yapay Zeka ile Musteri Adayi Onceliklendirme',
         description: 'Satis ekipleri icin hizli onceliklendirme rehberi.',
         slug: 'yapay-zeka-musteri-adayi-onceliklendirme',
         categoryId: null,
-        content: 'Giris.\n\n## Skorlama\n\nDetay.\n\n<!-- BLOG_IMAGE:image-1 -->',
+        content: `${longDraft}\n\n<!-- BLOG_IMAGE:image-1 -->`,
       });
     } else if (callIndex === 2) {
       content = JSON.stringify({
@@ -446,6 +453,115 @@ test('generateBlogPost uses a second translation call for BOTH language mode', a
   assert.match(prompts[2] || '', /Translate\/adapt this Turkish SaaS blog draft into English/i);
   assert.equal(result?.titleEN, 'AI Lead Prioritization for Revenue Teams');
   assert.equal(result?.coverAltTextEN, 'Lead prioritization dashboard');
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost expands under-length drafts before building the image plan', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  const shortDraft = [
+    'Giris paragrafi.',
+    '',
+    '## Yapay Zeka ile Onceliklendirme',
+    '',
+    'Bu taslak kisa tutuldu.',
+    '',
+    '## Sık Sorulan Sorular',
+    '',
+    '### Bu ne saglar?',
+    '',
+    'Daha hizli aksiyon.',
+  ].join('\n');
+
+  const expandedDraft = [
+    'Giris paragrafi.',
+    '',
+    'Bu genisletilmis taslak, satis ekiplerinin hangi sinyalleri oncelemesi gerektigini adim adim anlatir.',
+    '',
+    '## Yapay Zeka ile Onceliklendirme',
+    '',
+    `${Array.from({ length: 1250 }, () => 'genisletilmis').join(' ')} strateji uygulama olcum ornekleri.`,
+    '',
+    '## Sık Sorulan Sorular',
+    '',
+    '### Bu ne saglar?',
+    '',
+    'Daha hizli aksiyon ve daha net operasyon ritmi.',
+  ].join('\n');
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callIndex += 1;
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    let content = '';
+    if (callIndex === 1) {
+      content = JSON.stringify({
+        title: 'Yapay Zeka ile Musteri Adayi Onceliklendirme',
+        description: 'Satis ekipleri icin onceliklendirme rehberi.',
+        slug: 'yapay-zeka-musteri-adayi-onceliklendirme',
+        categoryId: null,
+        content: shortDraft,
+      });
+    } else if (callIndex === 2) {
+      content = JSON.stringify({
+        content: expandedDraft,
+      });
+    } else if (callIndex === 3) {
+      content = JSON.stringify({
+        coverImagePrompt: 'Revenue team prioritizing qualified pipeline',
+        coverAltText: 'Onceliklendirme gorseli',
+        inlineImages: [],
+      });
+    } else {
+      throw new Error(`Unexpected OpenAI call count: ${callIndex}`);
+    }
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateBlogPost(
+    'Qualy',
+    'Lead Scoring',
+    'Sales teams',
+    'AI sales assistant',
+    'Yapay zeka destekli satis surecleri',
+    'yapay zeka, musteri adayi',
+    'Professional & Informative',
+    'Medium (1500 - 2500 tokens)',
+    'TR',
+    'Editorial B2B (minimal cover, realistic inline, brandless)'
+  );
+
+  assert.equal(callIndex, 3);
+  assert.match(prompts[0] || '', /Minimum word count:\s+1200/i);
+  assert.match(prompts[0] || '', /Recommended H2 sections:\s+5-6/i);
+  assert.match(prompts[1] || '', /Expand this markdown article/i);
+  assert.match(prompts[1] || '', /Target range:\s+1200-1700 words/i);
+  assert.match(prompts[2] || '', /ARTICLE CONTEXT SNAPSHOT:/i);
+  assert.match(prompts[2] || '', /H2:\s+Yapay Zeka ile Onceliklendirme/i);
+  assert.equal(result?.content.includes('genisletilmis taslak'), true);
 
   global.fetch = originalFetch;
   process.env.OPENAI_API_KEY = originalOpenAiKey;

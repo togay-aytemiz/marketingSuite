@@ -1,4 +1,5 @@
 import type { BlogInlineImagePlan } from './lib/blog-image-slots';
+import { DEFAULT_BLOG_LENGTH, type BlogLengthOption } from './lib/blog-length';
 import type { AppLanguage } from './lib/app-language';
 
 export interface SeoAnalysis {
@@ -73,7 +74,7 @@ export interface AppState {
   blogTopic: string;
   blogKeywords: string;
   blogTone: string;
-  blogLength: 'Short (1000 - 1500 tokens)' | 'Medium (1500 - 2500 tokens)' | 'Long (2500 - 4000 tokens)';
+  blogLength: BlogLengthOption;
   blogImageStyle: string;
   
   // TR (Primary) Content
@@ -141,7 +142,7 @@ export const defaultState: AppState = {
   blogTopic: '',
   blogKeywords: '',
   blogTone: 'Professional & Informative',
-  blogLength: 'Medium (1500 - 2500 tokens)',
+  blogLength: DEFAULT_BLOG_LENGTH,
   blogImageStyle: 'Editorial B2B (minimal cover, realistic inline, brandless)',
   blogContent: null,
   blogTitle: null,

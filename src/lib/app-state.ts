@@ -1,5 +1,6 @@
 import { defaultState, type AppState } from '../types';
 import { normalizeAppLanguage } from './app-language';
+import { normalizeBlogLength } from './blog-length';
 
 export const APP_STATE_VERSION = 2;
 
@@ -12,6 +13,7 @@ export function hydrateAppState(saved: string | null): AppState {
     const parsed = JSON.parse(saved) as Partial<AppState> & { stateVersion?: number };
     const storedVersion = Number(parsed?.stateVersion || 0);
     const normalizedLanguage = normalizeAppLanguage(parsed?.language, defaultState.language);
+    const blogLength = normalizeBlogLength(parsed?.blogLength);
     const language = storedVersion < APP_STATE_VERSION && normalizedLanguage === 'TR'
       ? 'BOTH'
       : normalizedLanguage;
@@ -20,6 +22,7 @@ export function hydrateAppState(saved: string | null): AppState {
       ...defaultState,
       ...parsed,
       language,
+      blogLength,
       images: [],
       finalVisuals: [null, null, null, null],
       blogContent: null,

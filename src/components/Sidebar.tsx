@@ -9,6 +9,7 @@ import {
   buildEditorialResearchSummaryPosts,
   extractUsedInternalBlogLinks,
 } from '../lib/editorial-context';
+import { BLOG_LENGTH_OPTIONS } from '../lib/blog-length';
 
 const PRESETS = [
   {
@@ -670,9 +671,9 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
-                    <option>Short (1000 - 1500 tokens)</option>
-                    <option>Medium (1500 - 2500 tokens)</option>
-                    <option>Long (2500 - 4000 tokens)</option>
+                    {BLOG_LENGTH_OPTIONS.map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
                   </select>
                 </div>
                 

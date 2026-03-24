@@ -32,3 +32,14 @@ test('persists the current app state version with normalized language', () => {
   assert.equal(persisted.language, 'EN');
   assert.equal(persisted.productName, 'Qualy');
 });
+
+test('normalizes legacy stored blog length labels to the new word-based options', () => {
+  const hydrated = hydrateAppState(
+    JSON.stringify({
+      stateVersion: APP_STATE_VERSION,
+      blogLength: 'Medium (1500 - 2500 tokens)',
+    })
+  );
+
+  assert.equal(hydrated.blogLength, 'Medium (1200 - 1700 words)');
+});

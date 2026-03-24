@@ -22,6 +22,10 @@ import {
   extractMarkdownLinkCount,
 } from '../lib/blog-publish-readiness';
 import {
+  countWords,
+  resolveBlogLengthRequirements,
+} from '../lib/blog-length';
+import {
   resolveDraftCategory,
   type DraftCategoryOption,
   type DraftRecentCategoryReference,
@@ -1027,6 +1031,73 @@ Rules:
   });
 }
 
+async function expandBlogPostToMeetLength(input: {
+  productName: string;
+  featureName: string;
+  targetAudience: string;
+  description: string;
+  topic: string;
+  keywords: string;
+  tone: string;
+  language: 'TR' | 'EN';
+  title: string;
+  excerpt: string;
+  content: string;
+  minWords: number;
+  maxWords: number;
+  targetWords: number;
+  recommendedH2Count: string;
+}) {
+  return runOpenAiJson<{ content: string }>({
+    schemaName: 'blog_post_length_expansion',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        content: { type: 'string' },
+      },
+      required: ['content'],
+    },
+    temperature: 0.4,
+    prompt: `
+You are a senior SEO content editor.
+Expand this markdown article so it meets the requested depth and word count without losing coherence.
+
+PRODUCT CONTEXT:
+Product Name: ${input.productName || 'Our Product'}
+Feature/Focus Area: ${input.featureName || 'General'}
+Target Audience: ${input.targetAudience || 'General audience'}
+Product Description: ${input.description || 'A modern software solution.'}
+Topic/Instruction: ${input.topic || 'Not provided'}
+Keywords Input: ${input.keywords || 'Not provided'}
+Tone: ${input.tone}
+Language: ${getLanguageName(input.language)}
+${QUALY_SITE_GUARDRAILS}
+
+ARTICLE METADATA:
+Title: ${input.title}
+Description: ${input.excerpt}
+Current word count: ${countWords(input.content)}
+Minimum word count: ${input.minWords}
+Target range: ${input.minWords}-${input.maxWords} words
+Ideal word count: around ${input.targetWords} words
+Recommended H2 sections: ${input.recommendedH2Count}
+
+CURRENT MARKDOWN:
+${input.content}
+
+Rules:
+- Keep the same title promise, topic angle, and overall narrative arc.
+- Preserve every existing H2/H3 heading when it still fits; deepen thin sections before adding new ones.
+- Add concrete examples, decision criteria, mini checklists, and operational detail instead of filler.
+- Keep paragraphs concise, but make each section more informative.
+- Preserve every existing <!-- BLOG_IMAGE:image-x --> marker exactly as-is. Do not add or remove markers.
+- Keep the FAQ section near the end and keep the final CTA section at the very end if it already exists.
+- Return the full expanded markdown in the content field only.
+`,
+  });
+}
+
 export async function enhanceProductDetails(
   productName: string,
   featureName: string,
@@ -1300,6 +1371,7 @@ export const generateBlogPost = async (
   const isBoth = isDualLanguage(normalizedLanguage);
   const primaryLanguage = getPrimaryLanguage(normalizedLanguage);
   const targetLang = getLanguageName(primaryLanguage);
+  const blogLength = resolveBlogLengthRequirements(length);
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
@@ -1345,7 +1417,7 @@ BLOG INPUT:
 Topic/Instruction: ${topic || 'No explicit topic provided. Decide the best topic based on context.'}
 Keywords Input: ${keywords || 'No keywords provided. Decide and integrate 3-5 strong keywords yourself.'}
 Tone: ${tone}
-Length: ${length}
+Length: ${blogLength.label}
 Language: ${targetLang}
 Image Style: ${imageStyle}
 ${recentPostsInstruction}
@@ -1382,11 +1454,17 @@ CRITICAL RULES:
    - Each H2 section must introduce a clearly different angle.
    - Avoid repeating the same noun phrase across adjacent paragraphs or bullets.
    - Keep paragraphs concise and information-dense.
-12. Title quality:
+12. Length planning:
+   - Minimum word count: ${blogLength.minWords}
+   - Target range: ${blogLength.minWords}-${blogLength.maxWords} words
+   - Ideal word count: around ${blogLength.targetWords} words
+   - Recommended H2 sections: ${blogLength.recommendedH2Count}
+   - Do not return a thin draft that stops below the minimum word count.
+13. Title quality:
    - Titles must reflect a clear search intent, not a generic announcement.
    - Prefer specific patterns such as problem/solution, how-to, comparison, checklist, template, or use-case framing.
    - Avoid generic titles like "ürün notu", "product update", or "feature news" unless the user explicitly asked for release notes.
-13. If the broader workflow later needs an English version, that translation will happen in a separate call. This step must still return only the primary ${targetLang} fields.
+14. If the broader workflow later needs an English version, that translation will happen in a separate call. This step must still return only the primary ${targetLang} fields.
 `,
   });
 
@@ -1402,6 +1480,36 @@ CRITICAL RULES:
     postData.content = normalizeTurkishMarketingText(postData.content);
   } else {
     postData.content = cleanGeneratedMarkdownArtifacts(postData.content);
+  }
+
+  for (let pass = 0; pass < 2 && countWords(postData.content) < blogLength.minWords; pass += 1) {
+    const expanded = await expandBlogPostToMeetLength({
+      productName,
+      featureName,
+      targetAudience,
+      description,
+      topic,
+      keywords,
+      tone,
+      language: primaryLanguage,
+      title: postData.title,
+      excerpt: postData.description,
+      content: postData.content,
+      minWords: blogLength.minWords,
+      maxWords: blogLength.maxWords,
+      targetWords: blogLength.targetWords,
+      recommendedH2Count: blogLength.recommendedH2Count,
+    });
+
+    const nextContent = shouldNormalizeTurkish
+      ? normalizeTurkishMarketingText(expanded?.content || '')
+      : cleanGeneratedMarkdownArtifacts(expanded?.content || '');
+
+    if (!nextContent || countWords(nextContent) <= countWords(postData.content)) {
+      break;
+    }
+
+    postData.content = nextContent;
   }
 
   postData.title = await ensureTitleWithinLimit(postData.title, primaryLanguage);
@@ -1503,7 +1611,7 @@ Rules:
       topic,
       keywords,
       tone,
-      length,
+      length: blogLength.label,
       title: postData.title,
       excerpt: postData.description,
       content: postData.content,
