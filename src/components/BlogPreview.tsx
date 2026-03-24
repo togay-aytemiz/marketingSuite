@@ -1020,6 +1020,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   };
 
   const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
+  const currentWordCount = currentContent ? currentContent.trim().split(/\s+/).filter(Boolean).length : 0;
+  
   const inlinePlacements = buildInlineImagePlacementSummaries(currentContent).map((placement) => ({
     ...placement,
     image:
@@ -1159,6 +1161,13 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                       </div>
 
                       <div className="flex flex-wrap items-center justify-start gap-2 lg:justify-end">
+                        {currentWordCount > 0 && (
+                          <div className="flex items-center gap-1.5 rounded-xl border border-zinc-200 bg-white px-3 py-1.5 text-xs font-medium text-zinc-600 shadow-sm">
+                            <span className="text-zinc-400">Words:</span>
+                            <span className="text-zinc-900">{currentWordCount.toLocaleString()}</span>
+                          </div>
+                        )}
+                        
                         {state.language === 'BOTH' && (
                           <div className="flex items-center rounded-xl border border-zinc-200 bg-zinc-100/70 p-1">
                             <button
