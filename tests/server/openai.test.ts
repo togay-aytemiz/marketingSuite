@@ -8,6 +8,7 @@ import {
   buildBlogImageSlotMarker,
   buildBlogImagePromptPolicy,
   buildCategoryDistributionInstruction,
+  analyzeSeoForBlog,
   cleanGeneratedMarkdownArtifacts,
   ensureFinalCallToAction,
   enforceTurkishMarketingTerminology,
@@ -207,6 +208,158 @@ test('builds english internal links under /en/blog', () => {
   assert.equal(buildInternalBlogUrl('sales-automation', 'TR'), '/blog/sales-automation');
   assert.equal(buildInternalBlogUrl('sales-automation', 'EN'), '/en/blog/sales-automation');
 });
+
+test('analyzeSeoForBlog includes image alt-text coverage in the SEO prompt', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                score: 72,
+                keywords: [
+                  { word: 'qualy', count: 2 },
+                  { word: 'automation', count: 3 },
+                ],
+                suggestions: ['Add missing image alt text.'],
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await (analyzeSeoForBlog as unknown as (
+    title: string,
+    description: string,
+    content: string,
+    keywords: string,
+    imageAccessibility?: {
+      coverAltText?: string;
+      inlineImages?: Array<{ slotId?: string; altText?: string }>;
+    }
+  ) => Promise<{ score: number; keywords: { word: string; count: number }[]; suggestions: string[] } | null>)(
+    'Qualy blog title',
+    'Qualy blog description',
+    'Blog content body',
+    'qualy, sales automation',
+    {
+      coverAltText: '',
+      inlineImages: [
+        { slotId: 'image-1', altText: 'Lead scoring dashboard' },
+        { slotId: 'image-2', altText: '' },
+      ],
+    }
+  );
+
+  assert.equal(result?.score, 64);
+  assert.equal(result?.suggestions[0], 'Add missing image alt text.');
+  assert.match(prompts[0] || '', /IMAGE ALT TEXT COVERAGE/i);
+  assert.match(prompts[0] || '', /Cover image alt text:\s+missing/i);
+  assert.match(prompts[0] || '', /image-1:\s+Lead scoring dashboard/i);
+  assert.match(prompts[0] || '', /image-2:\s+missing/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('analyzeSeoForBlog embeds content facts and filters out contradictory suggestions', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                score: 85,
+                keywords: [
+                  { word: 'qualy', count: 2 },
+                ],
+                // We simulate the LLM returning these despite rules, to ensure filtering works
+                suggestions: [
+                  'Add an internal link to another blog post.',
+                  'Add a call-to-action at the end.',
+                  'Add alt text to images for better accessibility.',
+                  'Enhance the H2 tags with more keywords.' // This one should be kept
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await (analyzeSeoForBlog as unknown as (
+    title: string,
+    description: string,
+    content: string,
+    keywords: string,
+    imageAccessibility?: {
+      coverAltText?: string;
+      inlineImages?: Array<{ slotId?: string; altText?: string }>;
+    }
+  ) => Promise<{ score: number; keywords: { word: string; count: number }[]; suggestions: string[] } | null>)(
+    'Qualy blog title',
+    'Qualy blog description',
+    `Blog content body with a link [here](/blog/sales)
+    
+    ## Sonraki Adım
+    
+    Hemen iletisime gecin.
+    `,
+    'qualy, sales automation',
+    {
+      coverAltText: 'Cover image',
+      inlineImages: [
+        { slotId: 'image-1', altText: 'Lead scoring dashboard' },
+      ],
+    }
+  );
+
+  assert.equal(result?.score, 85);
+  // Only the valid suggestion should remain
+  assert.equal(result?.suggestions.length, 1);
+  assert.equal(result?.suggestions[0], 'Enhance the H2 tags with more keywords.');
+  
+  // Verify the prompt contains the computed facts
+  assert.match(prompts[0] || '', /CONTENT FACTS/i);
+  assert.match(prompts[0] || '', /Internal blog links found:\s*1/i);
+  assert.match(prompts[0] || '', /Final call-to-action section present:\s*yes/i);
+  assert.match(prompts[0] || '', /All images have alt text:\s*yes/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
 
 test('generateBlogPost uses a second translation call for BOTH language mode', async () => {
   const originalFetch = global.fetch;

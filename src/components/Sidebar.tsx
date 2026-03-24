@@ -4,6 +4,11 @@ import { Upload, Image as ImageIcon, X, Settings, Info, ChevronDown, ChevronRigh
 import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas, type TopicIdeaSuggestion } from '../services/gemini';
 import { fetchSanityCategories, fetchSanityPosts } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
+import {
+  buildEditorialPostUrl,
+  buildEditorialResearchSummaryPosts,
+  extractUsedInternalBlogLinks,
+} from '../lib/editorial-context';
 
 const PRESETS = [
   {
@@ -47,7 +52,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     copy: false,
     design: false,
     blogContent: true,
-    blogPreferences: false
+    blogPreferences: false,
+    editorialContext: true,
   });
   const [isGeneratingTopics, setIsGeneratingTopics] = useState(false);
   const [topicIdeas, setTopicIdeas] = useState<TopicIdeaSuggestion[]>([]);
@@ -93,9 +99,77 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setState(prev => ({ ...prev, [type]: text }));
   };
 
+  const normalizeWhitespace = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+
+  const formatPostDate = (value?: string) => {
+    const normalized = normalizeWhitespace(value);
+    if (!normalized) {
+      return 'unknown-date';
+    }
+
+    const parsed = Date.parse(normalized);
+    if (Number.isNaN(parsed)) {
+      return normalized;
+    }
+
+    return new Date(parsed).toISOString().slice(0, 10);
+  };
+
+  const loadEditorialResearchContext = async () => {
+    if (!sanityConfigured) {
+      return {
+        researchPosts: [],
+        categoryOptions: [],
+      };
+    }
+
+    const preferredLanguage = state.language === 'EN' ? 'en' : 'tr';
+    const [posts, categories] = await Promise.all([
+      fetchSanityPosts(),
+      fetchSanityCategories(preferredLanguage),
+    ]);
+
+    const researchPosts = buildEditorialResearchSummaryPosts(
+      posts.map((post) => ({
+        title: post.title,
+        slug: post.slug?.current,
+        excerpt: post.excerpt,
+        category: post.category?.title,
+        categoryId: post.category?._id,
+        language: post.language,
+        publishedAt: post.publishedAt || post.updatedAt,
+      }))
+    );
+    const categoryOptions = categories.map((category) => ({
+      id: category._id,
+      name: category.title,
+    }));
+
+    return {
+      researchPosts,
+      categoryOptions,
+    };
+  };
+
   const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const { name, value } = e.target;
-    setState((prev) => ({ ...prev, [name]: value }));
+    setState((prev) => {
+      const nextState = { ...prev, [name]: value };
+
+      if ((name === 'blogTopic' || name === 'blogKeywords') && prev.blogTopicDecision) {
+        const nextTopic = name === 'blogTopic' ? value : prev.blogTopic;
+        const nextKeywords = name === 'blogKeywords' ? value : prev.blogKeywords;
+        const matchesDecision =
+          normalizeWhitespace(nextTopic).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.topic).toLowerCase() &&
+          normalizeWhitespace(nextKeywords).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.keywords).toLowerCase();
+
+        if (!matchesDecision) {
+          nextState.blogTopicDecision = null;
+        }
+      }
+
+      return nextState;
+    });
   };
 
   const handleCheckboxChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -175,36 +249,22 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   const handleGenerateTopics = async () => {
     setIsGeneratingTopics(true);
 
-    let recentPosts: Array<{
-      title: string;
-      excerpt?: string;
-      category?: string;
-      publishedAt?: string;
-    }> = [];
-    let recentPostTitles: string[] = [];
-    let sanityCategoriesForPrompt: { id: string; name: string }[] = [];
+    const { researchPosts, categoryOptions } = await loadEditorialResearchContext();
+    const recentPosts = researchPosts.map((post) => ({
+      title: post.title,
+      excerpt: post.excerpt,
+      category: post.category,
+      categoryId: post.categoryId,
+      publishedAt: post.publishedAt,
+    }));
+    const recentPostTitles = recentPosts.map((post) => post.title).filter(Boolean);
+    const sanityCategoriesForPrompt = categoryOptions;
 
-    if (sanityConfigured) {
-      const preferredLanguage = state.language === 'EN' ? 'en' : 'tr';
-      const [posts, categories] = await Promise.all([
-        fetchSanityPosts(),
-        fetchSanityCategories(preferredLanguage),
-      ]);
-
-      recentPosts = posts.map((post) => ({
-        title: post.title,
-        excerpt: post.excerpt,
-        category: post.category?.title,
-        categoryId: post.category?._id,
-        publishedAt: post.publishedAt || post.updatedAt,
-      }));
-      recentPostTitles = recentPosts.map((post) => post.title).filter(Boolean);
-      sanityCategoriesForPrompt = categories.map((category) => ({
-        id: category._id,
-        name: category.title,
-      }));
-      setSanityCategoryOptions(sanityCategoriesForPrompt);
-    }
+    setSanityCategoryOptions(categoryOptions);
+    setState((prev) => ({
+      ...prev,
+      blogResearchPosts: researchPosts,
+    }));
 
     const newIdeas = await generateTopicIdeas(
       state.productName,
@@ -242,11 +302,22 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     const selectedCategory = categoryId
       ? sanityCategoryOptions.find((category) => category.id === categoryId) || null
       : null;
+    const selectedIdea = topicIdeas.find((idea) => idea.topic === topic && idea.keywords === keywords && idea.categoryId === categoryId) || null;
 
     setState(prev => ({
       ...prev,
       blogTopic: topic,
       blogKeywords: keywords,
+      blogTopicDecision: selectedIdea
+        ? {
+            topic: selectedIdea.topic,
+            keywords: selectedIdea.keywords,
+            categoryId: selectedIdea.categoryId,
+            reason: selectedIdea.reason,
+            categoryGap: selectedIdea.categoryGap,
+            excludedRecentTitles: selectedIdea.excludedRecentTitles,
+          }
+        : null,
       blogCategory: categoryId && selectedCategory
         ? {
             id: selectedCategory.id,
@@ -258,6 +329,34 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
         : prev.blogCategory
     }));
   };
+
+  useEffect(() => {
+    let cancelled = false;
+
+    async function hydrateEditorialContext() {
+      if (!sanityConfigured) {
+        setSanityCategoryOptions([]);
+        return;
+      }
+
+      const { researchPosts, categoryOptions } = await loadEditorialResearchContext();
+      if (cancelled) {
+        return;
+      }
+
+      setSanityCategoryOptions(categoryOptions);
+      setState((prev) => ({
+        ...prev,
+        blogResearchPosts: researchPosts,
+      }));
+    }
+
+    void hydrateEditorialContext();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [sanityConfigured, state.language]);
 
   if (!isSidebarOpen) {
     return (
@@ -295,6 +394,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   );
 
   if (state.activeModule === 'blog') {
+    const researchPosts = buildEditorialResearchSummaryPosts(state.blogResearchPosts);
+    const usedInternalLinks = extractUsedInternalBlogLinks([
+      { content: state.blogContent, language: 'TR' },
+      { content: state.blogContentEN, language: 'EN' },
+    ]);
+
     return (
       <div className={`w-80 bg-white border-r border-zinc-200 h-screen flex flex-col shrink-0 z-30 transition-opacity duration-300 ${isGenerating ? 'pointer-events-none opacity-60' : ''}`}>
         <SidebarHeader />
@@ -422,6 +527,111 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
             )}
           </div>
 
+          <div className="space-y-3">
+            <button
+              onClick={() => toggleSection('editorialContext')}
+              className="flex items-center justify-between w-full text-left group"
+            >
+              <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Editorial Context</h3>
+              <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${expandedSections.editorialContext ? 'rotate-180' : ''}`} />
+            </button>
+
+            {expandedSections.editorialContext && (
+              <div className="space-y-4 pt-1">
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Posts We Reviewed</p>
+                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                      {researchPosts.filter((p) => String(p.language || '').toLowerCase() !== 'en' && !p.slug?.startsWith('en/') && !p.slug?.startsWith('/en/')).length}
+                    </span>
+                  </div>
+
+                  {researchPosts.filter((p) => String(p.language || '').toLowerCase() !== 'en' && !p.slug?.startsWith('en/') && !p.slug?.startsWith('/en/')).length > 0 ? (
+                    <div className="mt-3 max-h-44 space-y-2 overflow-y-auto">
+                      {researchPosts
+                        .filter((p) => String(p.language || '').toLowerCase() !== 'en' && !p.slug?.startsWith('en/') && !p.slug?.startsWith('/en/'))
+                        .map((post, index) => {
+                          const date = new Date(post.publishedAt || '');
+                          const formattedDate = !isNaN(date.getTime()) 
+                            ? `${String(date.getDate()).padStart(2, '0')}/${String(date.getMonth() + 1).padStart(2, '0')}`
+                            : '';
+
+                          return (
+                            <div key={`${post.title}-${post.slug || index}`} className="flex items-center justify-between gap-2 px-1">
+                              <span className="truncate text-xs text-zinc-700" title={post.title}>{post.title}</span>
+                              {formattedDate && (
+                                <span className="shrink-0 text-[10px] text-zinc-400 font-mono">{formattedDate}</span>
+                              )}
+                            </div>
+                          );
+                        })}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-md border border-dashed border-zinc-200 bg-white px-3 py-3 text-[11px] leading-5 text-zinc-500">
+                      {sanityConfigured
+                        ? 'Sanity post havuzu henuz yuklenmedi.'
+                        : 'Sanity bagli olmadigi icin mevcut yazilarin ozeti gosterilemiyor.'}
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+                  <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Topic Decision</p>
+                  {state.blogTopicDecision ? (
+                    <div className="mt-2 space-y-2 text-[11px] leading-5 text-zinc-600">
+                      <div className="rounded-md border border-zinc-200 bg-white px-2.5 py-2">
+                        <div className="text-xs font-medium text-zinc-900">{state.blogTopicDecision.topic}</div>
+                        <div className="mt-1 text-zinc-500">Keywords: {state.blogTopicDecision.keywords}</div>
+                      </div>
+                      {state.blogTopicDecision.reason && (
+                        <div><span className="font-semibold text-zinc-800">Why now:</span> {state.blogTopicDecision.reason}</div>
+                      )}
+                      {state.blogTopicDecision.categoryGap && (
+                        <div><span className="font-semibold text-zinc-800">Gap:</span> {state.blogTopicDecision.categoryGap}</div>
+                      )}
+                      {(state.blogTopicDecision.excludedRecentTitles || []).length > 0 && (
+                        <div><span className="font-semibold text-zinc-800">Avoids:</span> {state.blogTopicDecision.excludedRecentTitles?.join(', ')}</div>
+                      )}
+                    </div>
+                  ) : state.blogTopic.trim() ? (
+                    <div className="mt-2 rounded-md border border-dashed border-zinc-200 bg-white px-3 py-3 text-[11px] leading-5 text-zinc-500">
+                      Manual topic aktif. AI rationale yalnizca brainstorming listesinden bir fikir secildiginde kaydedilir.
+                    </div>
+                  ) : (
+                    <div className="mt-2 rounded-md border border-dashed border-zinc-200 bg-white px-3 py-3 text-[11px] leading-5 text-zinc-500">
+                      Henuz bir topic secilmedi.
+                    </div>
+                  )}
+                </div>
+
+                <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Internal Links Used</p>
+                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                      {usedInternalLinks.filter(l => l.language === 'TR').length}
+                    </span>
+                  </div>
+
+                  {usedInternalLinks.filter(l => l.language === 'TR').length > 0 ? (
+                    <div className="mt-3 space-y-2">
+                      {usedInternalLinks.filter(l => l.language === 'TR').map((link) => (
+                        <div key={`${link.language}:${link.href}`} className="flex items-center justify-between gap-2 px-1">
+                          <span className="truncate text-xs text-zinc-700" title={link.label || link.href}>{link.label || link.href}</span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : (
+                    <div className="mt-3 rounded-md border border-dashed border-zinc-200 bg-white px-3 py-3 text-[11px] leading-5 text-zinc-500">
+                      {state.autoInternalLinks
+                        ? 'Henuz internal link eklenmedi.'
+                        : 'Auto internal linking kapali.'}
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+
           {/* Options */}
           <div className="space-y-3">
             <button 
@@ -460,9 +670,9 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     className="w-full px-3 py-2 pr-8 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors appearance-none bg-white"
                     style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                   >
-                    <option>Short (500 words)</option>
-                    <option>Medium (1000 words)</option>
-                    <option>Long (1500+ words)</option>
+                    <option>Short (1000 - 1500 tokens)</option>
+                    <option>Medium (1500 - 2500 tokens)</option>
+                    <option>Long (2500 - 4000 tokens)</option>
                   </select>
                 </div>
                 

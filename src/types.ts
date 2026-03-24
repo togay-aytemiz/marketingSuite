@@ -21,6 +21,22 @@ export interface BlogTopicIdeaRationale {
   excludedRecentTitles?: string[];
 }
 
+export interface EditorialReferencePost {
+  title: string;
+  slug?: string;
+  excerpt?: string;
+  category?: string;
+  categoryId?: string;
+  language?: string;
+  publishedAt?: string;
+}
+
+export interface BlogTopicDecision extends BlogTopicIdeaRationale {
+  topic: string;
+  keywords: string;
+  categoryId: string | null;
+}
+
 export interface AppState {
   // Global Product Context
   productName: string;
@@ -57,7 +73,7 @@ export interface AppState {
   blogTopic: string;
   blogKeywords: string;
   blogTone: string;
-  blogLength: 'Short (500 words)' | 'Medium (1000 words)' | 'Long (1500+ words)';
+  blogLength: 'Short (1000 - 1500 tokens)' | 'Medium (1500 - 2500 tokens)' | 'Long (2500 - 4000 tokens)';
   blogImageStyle: string;
   
   // TR (Primary) Content
@@ -79,6 +95,8 @@ export interface AppState {
   blogCoverUrlEN?: string | null;
   blogCoverAltTextEN?: string | null;
 
+  blogResearchPosts: EditorialReferencePost[];
+  blogTopicDecision: BlogTopicDecision | null;
   blogCategory: ResolvedBlogCategory | null;
   seoAnalysis: SeoAnalysis | null;
   seoAnalysisEN: SeoAnalysis | null;
@@ -123,7 +141,7 @@ export const defaultState: AppState = {
   blogTopic: '',
   blogKeywords: '',
   blogTone: 'Professional & Informative',
-  blogLength: 'Medium (1000 words)',
+  blogLength: 'Medium (1500 - 2500 tokens)',
   blogImageStyle: 'Editorial B2B (minimal cover, realistic inline, brandless)',
   blogContent: null,
   blogTitle: null,
@@ -142,6 +160,8 @@ export const defaultState: AppState = {
   blogCoverUrlEN: null,
   blogCoverAltTextEN: null,
 
+  blogResearchPosts: [],
+  blogTopicDecision: null,
   blogCategory: null,
   seoAnalysis: null,
   seoAnalysisEN: null,

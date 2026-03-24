@@ -18,6 +18,7 @@ import {
   migrateLegacyImagePromptsToSlots,
   normalizeEditorialMarkdown,
 } from '../lib/blog-draft-media';
+import { buildEditorialResearchSummaryPosts } from '../lib/editorial-context';
 import { finalizeCoverImagePromptText, finalizeInlineImagePromptText } from '../lib/editorial-cover-style';
 import { buildPublishReadiness, extractMarkdownLinkCount } from '../lib/blog-publish-readiness';
 import { ensureFinalCallToAction } from '../lib/blog-call-to-action';
@@ -68,6 +69,19 @@ function normalizeInlinePromptForState(prompt: string | null | undefined) {
   return shouldCompactGeneratedPrompt(normalized)
     ? finalizeInlineImagePromptText(normalized)
     : normalized;
+}
+
+function buildSeoImageAccessibilityInput(
+  coverAltText: string | null | undefined,
+  inlineImages: BlogInlineImagePlan[]
+) {
+  return {
+    coverAltText: String(coverAltText || '').trim(),
+    inlineImages: inlineImages.map((image) => ({
+      slotId: normalizeBlogImageSlotId(image.slotId) || image.slotId,
+      altText: String(image.altText || '').trim(),
+    })),
+  };
 }
 
 function collectInlineImageReferences(contents: Array<string | null | undefined>) {
@@ -559,6 +573,20 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       }));
       setKnownRecentPosts(sanityPostsForPrompt);
       setKnownSanityCategories(sanityCategoriesForPrompt);
+      setState((prev) => ({
+        ...prev,
+        blogResearchPosts: buildEditorialResearchSummaryPosts(
+          posts.map((post) => ({
+            title: post.title,
+            slug: post.slug.current,
+            excerpt: post.excerpt,
+            category: post.category?.title,
+            categoryId: post.category?._id,
+            language: post.language,
+            publishedAt: post.publishedAt || post.updatedAt,
+          }))
+        ),
+      }));
     }
 
     const response = await generateBlogPost(
@@ -636,7 +664,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
           response.title,
           response.description,
           buildArticlePreviewMarkdown(normalizedDraft.blogContent || response.content),
-          state.blogKeywords
+          state.blogKeywords,
+          buildSeoImageAccessibilityInput(response.coverAltText, normalizedDraft.blogInlineImages)
         );
         if (analysis) {
           setState(prev => ({ ...prev, seoAnalysis: analysis }));
@@ -648,7 +677,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
           isEnglishOnly ? response.title : response.titleEN || '',
           isEnglishOnly ? response.description : response.descriptionEN || '',
           buildArticlePreviewMarkdown(normalizedDraft.blogContentEN || response.contentEN || response.content || ''),
-          state.blogKeywords
+          state.blogKeywords,
+          buildSeoImageAccessibilityInput(isEnglishOnly ? response.coverAltText : response.coverAltTextEN || '', normalizedDraft.blogInlineImages)
         );
         if (analysisEN) {
           setState(prev => ({ ...prev, seoAnalysisEN: analysisEN }));
@@ -758,7 +788,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         viewLanguage === 'EN' ? state.blogTitleEN || '' : state.blogTitle || '',
         viewLanguage === 'EN' ? state.blogDescriptionEN || '' : state.blogDescription || '',
         buildArticlePreviewMarkdown(viewLanguage === 'EN' ? normalizedDraft.blogContentEN : normalizedDraft.blogContent), 
-        state.blogKeywords
+        state.blogKeywords,
+        buildSeoImageAccessibilityInput(viewLanguage === 'EN' ? state.blogCoverAltTextEN : state.blogCoverAltText, normalizedDraft.blogInlineImages)
       );
       if (analysis) {
         setState(prev => ({
@@ -936,7 +967,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         viewLanguage === 'EN' ? state.blogTitleEN || '' : state.blogTitle || '',
         viewLanguage === 'EN' ? state.blogDescriptionEN || '' : state.blogDescription || '',
         buildArticlePreviewMarkdown(viewLanguage === 'EN' ? normalizedDraft.blogContentEN : normalizedDraft.blogContent), 
-        state.blogKeywords
+        state.blogKeywords,
+        buildSeoImageAccessibilityInput(viewLanguage === 'EN' ? state.blogCoverAltTextEN : state.blogCoverAltText, normalizedDraft.blogInlineImages)
       );
       if (analysis) {
         setState(prev => ({

@@ -16,7 +16,11 @@ import {
 } from '../lib/blog-draft-media';
 import {
   ensureFinalCallToAction,
+  hasFinalCallToAction,
 } from '../lib/blog-call-to-action';
+import {
+  extractMarkdownLinkCount,
+} from '../lib/blog-publish-readiness';
 import {
   resolveDraftCategory,
   type DraftCategoryOption,
@@ -85,6 +89,11 @@ export interface TopicIdeaSuggestion {
   reason?: string;
   categoryGap?: string;
   excludedRecentTitles?: string[];
+}
+
+interface SeoImageAccessibilityInput {
+  coverAltText?: string;
+  inlineImages?: Array<Pick<BlogInlineImagePlan, 'slotId' | 'altText'>>;
 }
 
 interface OpenAiChatConfig {
@@ -159,6 +168,54 @@ const TURKISH_ASCII_TEXT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: str
 
 function normalizeWhitespace(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function buildSeoImageAccessibilitySummary(imageAccessibility?: SeoImageAccessibilityInput) {
+  if (!imageAccessibility) {
+    return {
+      promptBlock: 'IMAGE ALT TEXT COVERAGE:\n- Image alt text data: not provided',
+      missingCount: 0,
+    };
+  }
+
+  const lines = ['IMAGE ALT TEXT COVERAGE:'];
+  let missingCount = 0;
+  const coverAltText = normalizeWhitespace(String(imageAccessibility.coverAltText || ''));
+
+  if (coverAltText) {
+    lines.push(`- Cover image alt text: ${coverAltText}`);
+  } else {
+    lines.push('- Cover image alt text: missing');
+    missingCount += 1;
+  }
+
+  const inlineImages = Array.isArray(imageAccessibility.inlineImages) ? imageAccessibility.inlineImages : [];
+  let inlineWithAltCount = 0;
+
+  if (inlineImages.length === 0) {
+    lines.push('- Inline images: none');
+  } else {
+    for (let index = 0; index < inlineImages.length; index += 1) {
+      const image = inlineImages[index];
+      const slotId = normalizeBlogImageSlotId(image?.slotId) || `image-${index + 1}`;
+      const altText = normalizeWhitespace(String(image?.altText || ''));
+
+      if (altText) {
+        inlineWithAltCount += 1;
+        lines.push(`- ${slotId}: ${altText}`);
+      } else {
+        missingCount += 1;
+        lines.push(`- ${slotId}: missing`);
+      }
+    }
+
+    lines.push(`- Inline image alt text coverage: ${inlineWithAltCount}/${inlineImages.length}`);
+  }
+
+  return {
+    promptBlock: lines.join('\n'),
+    missingCount,
+  };
 }
 
 function isAllUppercaseTurkish(value: string) {
@@ -1077,9 +1134,34 @@ export const analyzeSeoForBlog = async (
   title: string,
   description: string,
   content: string,
-  keywords: string
+  keywords: string,
+  imageAccessibility?: SeoImageAccessibilityInput
 ) => {
-  return runOpenAiJson<{ score: number; keywords: { word: string; count: number }[]; suggestions: string[] }>({
+  const imageAccessibilitySummary = buildSeoImageAccessibilitySummary(imageAccessibility);
+
+  // Pre-compute content facts so the LLM scores based on reality
+  const internalLinkCount = extractMarkdownLinkCount(content);
+  const hasCta = hasFinalCallToAction(content, 'TR') || hasFinalCallToAction(content, 'EN');
+  const hasFaqSection = /##\s*(FAQ|Sıkça Sorulan Sorular|Frequently Asked Questions)/i.test(content);
+  const wordCount = content.split(/\s+/).filter(Boolean).length;
+  const titleLength = normalizeWhitespace(title).length;
+  const descriptionLength = normalizeWhitespace(description).length;
+  const hasH2 = /^##\s+/m.test(content);
+  const allImagesHaveAlt = imageAccessibilitySummary.missingCount === 0;
+
+  const contentFactsBlock = [
+    'CONTENT FACTS (pre-computed from actual content — use as ground truth):',
+    `- Title length: ${titleLength} characters (limit: 70)`,
+    `- Meta description length: ${descriptionLength} characters (limit: 160)`,
+    `- Word count: ~${wordCount}`,
+    `- Heading structure (H2/H3): ${hasH2 ? 'present' : 'missing'}`,
+    `- Internal blog links found: ${internalLinkCount}`,
+    `- Final call-to-action section present: ${hasCta ? 'yes' : 'no'}`,
+    `- FAQ section present: ${hasFaqSection ? 'yes' : 'no'}`,
+    `- All images have alt text: ${allImagesHaveAlt ? 'yes' : 'no (missing: ' + imageAccessibilitySummary.missingCount + ')'}`,
+  ].join('\n');
+
+  const analysis = await runOpenAiJson<{ score: number; keywords: { word: string; count: number }[]; suggestions: string[] }>({
     schemaName: 'seo_analysis',
     schema: {
       type: 'object',
@@ -1109,19 +1191,95 @@ export const analyzeSeoForBlog = async (
 You are an expert SEO analyst.
 Analyze this blog post and provide a practical SEO score.
 
+${contentFactsBlock}
+
+${imageAccessibilitySummary.promptBlock}
+
 Target Keywords: ${keywords || 'None provided'}
 Title: ${title}
 Meta Description: ${description}
 Content:
 ${content}
 
+Scoring rubric (use CONTENT FACTS above to compute each):
+- Title within 70 chars: +10
+- Meta description within 160 chars: +10
+- Target keywords appear naturally (3+ occurrences): +20
+- Content length >= 800 words: +10
+- Internal links >= 1: +10
+- All images have alt text: +10
+- FAQ section present: +10
+- CTA section present: +10
+- Heading structure with H2/H3: +10
+Start at 0, add points for each satisfied criterion. Deduct up to 5 for poor keyword density or repetitive writing.
+
 Rules:
-- score: 0-100
-- keywords: return top 4-6 terms with exact count
-- suggestions: 2-3 short actionable items
+- score: 0-100, computed strictly from the rubric above
+- keywords: return top 4-6 terms with their exact occurrence count in the content
+- suggestions: return 2-3 short, actionable improvement items
+- CRITICAL: Only suggest improvements for criteria that are NOT already satisfied according to CONTENT FACTS
+- Do NOT suggest adding internal links if internal links already exist (count >= 1)
+- Do NOT suggest adding alt text if all images already have alt text
+- Do NOT suggest adding a call-to-action if the CTA section is already present
+- Do NOT suggest adding a FAQ if a FAQ section is already present
+- Focus suggestions on genuinely missing or weak areas
 `,
     temperature: 0.3,
   });
+
+  if (!analysis) {
+    return analysis;
+  }
+
+  // Post-process: filter suggestions that contradict pre-computed facts
+  let normalizedSuggestions = Array.isArray(analysis.suggestions)
+    ? analysis.suggestions.filter((item) => normalizeWhitespace(String(item || '')).length > 0)
+    : [];
+
+  normalizedSuggestions = normalizedSuggestions.filter((suggestion) => {
+    const lower = suggestion.toLowerCase();
+    // Filter out internal link suggestions when links already exist
+    if (internalLinkCount > 0 && /internal\s+link/i.test(lower)) {
+      return false;
+    }
+    // Filter out alt text suggestions when all images have alt text
+    if (allImagesHaveAlt && /alt\s*text/i.test(lower)) {
+      return false;
+    }
+    // Filter out CTA suggestions when CTA is present
+    if (hasCta && /call[- ]to[- ]action|\bcta\b/i.test(lower)) {
+      return false;
+    }
+    // Filter out FAQ suggestions when FAQ is present
+    if (hasFaqSection && /\bfaq\b|frequently\s+asked/i.test(lower)) {
+      return false;
+    }
+    return true;
+  });
+
+  if (imageAccessibilitySummary.missingCount > 0 && !normalizedSuggestions.some((item) => /alt text/i.test(item))) {
+    normalizedSuggestions.unshift(
+      imageAccessibilitySummary.missingCount === 1
+        ? 'Add alt text to the missing image before publishing.'
+        : `Add alt text to ${imageAccessibilitySummary.missingCount} images before publishing.`
+    );
+  }
+
+  return {
+    ...analysis,
+    score: Math.max(
+      0,
+      Math.min(
+        100,
+        analysis.score - (
+          imageAccessibilitySummary.missingCount > 0
+            ? Math.min(12, imageAccessibilitySummary.missingCount * 4)
+            : 0
+        )
+      )
+    ),
+    suggestions: normalizedSuggestions.slice(0, 3),
+  };
 };
 
 export const generateBlogPost = async (

@@ -47,6 +47,11 @@ export interface TopicIdeaSuggestion {
   excludedRecentTitles?: string[];
 }
 
+export interface SeoImageAccessibilityInput {
+  coverAltText?: string;
+  inlineImages?: Array<Pick<BlogInlineImagePlan, 'slotId' | 'altText'>>;
+}
+
 async function readApiError(response: Response) {
   try {
     const payload = await response.json();
@@ -189,13 +194,16 @@ export const analyzeSeoForBlog = async (
   title: string,
   description: string,
   content: string,
-  keywords: string
+  keywords: string,
+  imageAccessibility?: SeoImageAccessibilityInput
 ) =>
   postAiAction<{ score: number; keywords: { word: string; count: number }[]; suggestions: string[] }>('analyze-seo-for-blog', {
     title,
     description,
     content,
     keywords,
+    coverAltText: imageAccessibility?.coverAltText,
+    inlineImages: imageAccessibility?.inlineImages,
   });
 
 export const generateBlogPost = async (

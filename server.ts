@@ -285,7 +285,11 @@ async function startServer() {
             req.body.title,
             req.body.description,
             req.body.content,
-            req.body.keywords
+            req.body.keywords,
+            {
+              coverAltText: req.body.coverAltText,
+              inlineImages: req.body.inlineImages,
+            }
           );
           break;
         case 'generate-blog-post':
