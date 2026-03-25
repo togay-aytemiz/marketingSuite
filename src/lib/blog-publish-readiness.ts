@@ -125,7 +125,7 @@ export function buildPublishReadiness(input: PublishReadinessInput): PublishRead
         ? input.language === 'BOTH'
           ? 'TR and EN titles are within 70 characters.'
           : 'Title is within the 70 character limit.'
-        : 'Shorten the title to 70 characters or less.'
+        : 'Title must be at most 70 characters.'
     ),
     createItem(
       'description',

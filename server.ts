@@ -22,6 +22,7 @@ import {
   generateMarketingCopy,
   generateSocialPosts,
   generateTopicIdeas,
+  regenerateBlogTitles,
 } from './src/server/openai';
 import { fetchEditorialPlanningSnapshot } from './src/server/editorial-planner';
 import { normalizeCategoryOptions } from './src/lib/blog-category-resolution';
@@ -166,6 +167,7 @@ async function startServer() {
       'generate-copy-ideas',
       'generate-topic-ideas',
       'analyze-seo-for-blog',
+      'regenerate-blog-title',
       'generate-blog-post',
       'add-internal-links',
       'edit-blog-post',
@@ -291,6 +293,17 @@ async function startServer() {
               inlineImages: req.body.inlineImages,
             }
           );
+          break;
+        case 'regenerate-blog-title':
+          result = await regenerateBlogTitles({
+            content: req.body.content,
+            contentEN: req.body.contentEN,
+            currentTitle: req.body.currentTitle,
+            currentTitleEN: req.body.currentTitleEN,
+            description: req.body.description,
+            descriptionEN: req.body.descriptionEN,
+            keywords: req.body.keywords,
+          });
           break;
         case 'generate-blog-post':
           result = await generateBlogPost(

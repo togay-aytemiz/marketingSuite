@@ -52,6 +52,13 @@ export interface SeoImageAccessibilityInput {
   inlineImages?: Array<Pick<BlogInlineImagePlan, 'slotId' | 'altText'>>;
 }
 
+export interface RegeneratedBlogTitlesResult {
+  title?: string;
+  slug?: string;
+  titleEN?: string;
+  slugEN?: string;
+}
+
 async function readApiError(response: Response) {
   try {
     const payload = await response.json();
@@ -205,6 +212,18 @@ export const analyzeSeoForBlog = async (
     coverAltText: imageAccessibility?.coverAltText,
     inlineImages: imageAccessibility?.inlineImages,
   });
+
+export const regenerateBlogTitles = async (input: {
+  content?: string | null;
+  contentEN?: string | null;
+  currentTitle?: string;
+  currentTitleEN?: string;
+  description?: string;
+  descriptionEN?: string;
+  keywords?: string;
+}
+) =>
+  postAiAction<RegeneratedBlogTitlesResult>('regenerate-blog-title', input);
 
 export const generateBlogPost = async (
   productName: string,

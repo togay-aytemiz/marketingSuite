@@ -71,7 +71,7 @@ test('checks CTA against English content for EN drafts', () => {
 test('builds a blocking readiness checklist when critical publish data is missing', () => {
   const result = buildPublishReadiness({
     language: 'TR',
-    title: 'Kisa Baslik',
+    title: 'Bu baslik yetmis karakter sinirini gecen uzun bir ornek baslik metnidir',
     description: 'Aciklama',
     content: '## Giris\n\nParagraf',
     category: null,
@@ -87,6 +87,10 @@ test('builds a blocking readiness checklist when critical publish data is missin
   assert.equal(result.items.find((item) => item.key === 'cover')?.ok, false);
   assert.equal(result.items.find((item) => item.key === 'inline-images')?.ok, false);
   assert.equal(result.items.find((item) => item.key === 'cta')?.ok, false);
+  assert.equal(
+    result.items.find((item) => item.key === 'title')?.message,
+    'Title must be at most 70 characters.'
+  );
 });
 
 test('allows publish when required items are present and bilingual content is complete', () => {

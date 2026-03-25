@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { Settings, PenTool, Loader2, Copy, Check, BarChart3, AlertCircle, Image as ImageIcon, Sparkles, Wand2, Send, Download, RefreshCw, Link as LinkIcon, UploadCloud, Share2, Twitter, Linkedin, Database } from 'lucide-react';
-import { generateBlogPost, analyzeSeoForBlog, generateBlogImage, editBlogPost, addInternalLinks, generateSocialPosts } from '../services/gemini';
+import { generateBlogPost, analyzeSeoForBlog, generateBlogImage, editBlogPost, addInternalLinks, generateSocialPosts, regenerateBlogTitles } from '../services/gemini';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
 import Markdown from 'react-markdown';
@@ -25,6 +25,7 @@ import { ensureFinalCallToAction } from '../lib/blog-call-to-action';
 import { resolveDraftCategory } from '../lib/blog-category-resolution';
 import { buildSanityPublishMessage } from '../lib/blog-publish-feedback';
 import { convertBlogPublishMediaToWebp, convertImageDataUrlToWebp } from '../lib/blog-media-webp';
+import { syncDraftTitleHeading } from '../lib/blog-title-sync';
 
 interface BlogPreviewProps {
   state: AppState;
@@ -179,6 +180,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const [editInstruction, setEditInstruction] = useState('');
   const [isEditing, setIsEditing] = useState(false);
   const [isGeneratingSocial, setIsGeneratingSocial] = useState(false);
+  const [isRegeneratingTitles, setIsRegeneratingTitles] = useState(false);
   const [socialPosts, setSocialPosts] = useState<{ twitter: string; linkedin: string } | null>(null);
   const [isGeneratingCover, setIsGeneratingCover] = useState(false);
   const [knownSanityCategories, setKnownSanityCategories] = useState<Array<{ id: string; name: string }>>([]);
@@ -740,6 +742,98 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     setIsGeneratingSocial(false);
   };
 
+  const handleRegenerateTitles = async () => {
+    if ((!state.blogContent && !state.blogContentEN) || !openAiConfigured) return;
+
+    setIsRegeneratingTitles(true);
+    setSanityMessage(null);
+
+    const regeneration = await regenerateBlogTitles({
+      content: state.blogContent ? buildArticlePreviewMarkdown(state.blogContent) : null,
+      contentEN: state.blogContentEN ? buildArticlePreviewMarkdown(state.blogContentEN) : null,
+      currentTitle: state.blogTitle || '',
+      currentTitleEN: state.blogTitleEN || '',
+      description: state.blogDescription || '',
+      descriptionEN: state.blogDescriptionEN || '',
+      keywords: state.blogKeywords,
+    });
+
+    if (regeneration && (regeneration.title || regeneration.titleEN)) {
+      const nextBlogContent = regeneration.title
+        ? syncDraftTitleHeading(state.blogContent, state.blogTitle, regeneration.title)
+        : state.blogContent;
+      const nextBlogContentEN = regeneration.titleEN
+        ? syncDraftTitleHeading(state.blogContentEN, state.blogTitleEN, regeneration.titleEN)
+        : state.blogContentEN;
+
+      setState((prev) => ({
+        ...prev,
+        blogContent: nextBlogContent,
+        blogTitle: regeneration.title ?? prev.blogTitle,
+        blogSlug: regeneration.slug ?? prev.blogSlug,
+        blogContentEN: nextBlogContentEN,
+        blogTitleEN: regeneration.titleEN ?? prev.blogTitleEN,
+        blogSlugEN: regeneration.slugEN ?? prev.blogSlugEN,
+      }));
+
+      const refreshedLanguages = [
+        regeneration.title ? 'TR' : null,
+        regeneration.titleEN ? 'EN' : null,
+      ].filter(Boolean).join(' + ');
+
+      setSanityMessage({ type: 'success', text: `Titles and slugs regenerated from the current ${refreshedLanguages || 'draft'} draft.` });
+      setTimeout(() => setSanityMessage(null), 3000);
+
+      const seoUpdates: Partial<AppState> = {};
+      setIsAnalyzingSeo(true);
+
+      if (nextBlogContent && regeneration.title) {
+        const analysis = await analyzeSeoForBlog(
+          regeneration.title,
+          state.blogDescription || '',
+          buildArticlePreviewMarkdown(nextBlogContent),
+          state.blogKeywords,
+          buildSeoImageAccessibilityInput(
+            state.blogCoverAltText,
+            state.blogInlineImages
+          )
+        );
+        if (analysis) {
+          seoUpdates.seoAnalysis = analysis;
+        }
+      }
+
+      if (nextBlogContentEN && regeneration.titleEN) {
+        const analysisEN = await analyzeSeoForBlog(
+          regeneration.titleEN,
+          state.blogDescriptionEN || '',
+          buildArticlePreviewMarkdown(nextBlogContentEN),
+          state.blogKeywords,
+          buildSeoImageAccessibilityInput(
+            state.blogCoverAltTextEN,
+            state.blogInlineImages
+          )
+        );
+        if (analysisEN) {
+          seoUpdates.seoAnalysisEN = analysisEN;
+        }
+      }
+
+      if (Object.keys(seoUpdates).length > 0) {
+        setState((prev) => ({
+          ...prev,
+          ...seoUpdates,
+        }));
+      }
+      setIsAnalyzingSeo(false);
+    } else {
+      setSanityMessage({ type: 'error', text: 'Failed to regenerate titles and slugs.' });
+      setTimeout(() => setSanityMessage(null), 3000);
+    }
+
+    setIsRegeneratingTitles(false);
+  };
+
   const handleEdit = async () => {
     const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
     if (!editInstruction.trim() || !currentContent || !openAiConfigured) return;
@@ -1030,6 +1124,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const currentTitle = viewLanguage === 'EN' ? state.blogTitleEN : state.blogTitle;
   const currentDescription = viewLanguage === 'EN' ? state.blogDescriptionEN : state.blogDescription;
   const currentSlug = viewLanguage === 'EN' ? state.blogSlugEN : state.blogSlug;
+  const hasAnyDraftContent = Boolean(state.blogContent || state.blogContentEN);
   const currentCoverPrompt = viewLanguage === 'EN' ? state.blogCoverPromptEN : state.blogCoverPrompt;
   const currentCoverAltText = viewLanguage === 'EN' ? state.blogCoverAltTextEN : state.blogCoverAltText;
   const currentCoverUrl = viewLanguage === 'EN' ? state.blogCoverUrlEN : state.blogCoverUrl;
@@ -1055,7 +1150,6 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     sanityConfigured,
   });
   const currentInternalLinkCount = extractMarkdownLinkCount(currentContent) || 0;
-  const hasAnyDraftContent = Boolean(state.blogContent || state.blogContentEN);
 
   const advanceWorkflowStage = () => {
     if (workflowStage === 'draft') {
@@ -1564,7 +1658,18 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
 
                         <div className="mt-5 grid gap-4">
                           <div>
-                            <label className="mb-1 block text-xs font-medium text-zinc-500">Title</label>
+                            <div className="mb-1 flex items-center justify-between gap-3">
+                              <label className="block text-xs font-medium text-zinc-500">Title</label>
+                              <button
+                                type="button"
+                                onClick={handleRegenerateTitles}
+                                disabled={isRegeneratingTitles || !openAiConfigured || !hasAnyDraftContent}
+                                className="inline-flex items-center gap-1 rounded-lg bg-indigo-50 px-2.5 py-1.5 text-[11px] font-medium text-indigo-600 transition-colors hover:bg-indigo-100 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                {isRegeneratingTitles ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                                {isRegeneratingTitles ? 'Regenerating...' : 'Regenerate Titles'}
+                              </button>
+                            </div>
                             <input
                               type="text"
                               value={currentTitle || ''}

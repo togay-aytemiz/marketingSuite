@@ -14,6 +14,8 @@ import {
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
   generateBlogPost,
+  regenerateBlogTitles,
+  generateTopicIdeas,
   normalizeTopicIdeaCandidate,
   normalizeTurkishTextQuality,
   resolveCategoryId,
@@ -663,7 +665,7 @@ test('normalizes topic idea rationale fields and turkish terminology', () => {
   const normalized = normalizeTopicIdeaCandidate(
     {
       topic: 'AI lead scoring ile hazir yanitlar nasil kullanilir',
-      keywords: 'AI lead scoring, conversion rate, engagement, urun notu',
+      keywords: 'AI lead scoring, conversion rate, engagement, urun notu, conversion rate',
       categoryId: 'cat-sales',
       reason: 'Lead scoring ve conversion odakli hazir yanit acisi.',
       categoryGap: 'Bu kategoride son donemde daha az urun notu yazisi var.',
@@ -677,8 +679,130 @@ test('normalizes topic idea rationale fields and turkish terminology', () => {
   assert.equal(normalized?.topic.includes('AI'), false);
   assert.equal(normalized?.keywords.includes('conversion'), false);
   assert.equal(normalized?.topic.includes('hazır yanıtlar nasıl kullanılır'), true);
-  assert.equal(normalized?.keywords.includes('ürün notu'), true);
+  assert.equal(normalized?.keywords.includes('ürün notu'), false);
+  assert.equal(normalized?.keywords, 'yapay zeka müşteri adayı puanlama, dönüşüm oranı, etkileşim');
   assert.equal(normalized?.reason.includes('müşteri adayı puanlama'), true);
   assert.deepEqual(normalized?.excludedRecentTitles, ['Eski Yazi 1', 'Eski Yazi 2']);
   assert.equal(normalized?.categoryId, 'cat-sales');
+});
+
+test('generateTopicIdeas asks for marketing-manager style keyword sets', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  let capturedPrompt = '';
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    capturedPrompt = String(body?.messages?.[1]?.content || '');
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                items: [
+                  {
+                    topic: 'WhatsApp otomasyonunda müşteri adayı önceliklendirme rehberi',
+                    keywords: 'whatsapp otomasyonu, müşteri adayı önceliklendirme, satış ekibi iş akışı',
+                    categoryId: null,
+                    reason: 'Qualified talebi büyütür.',
+                    categoryGap: 'Bu açı daha az işlendi.',
+                    excludedRecentTitles: [],
+                  },
+                ],
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateTopicIdeas(
+    'Qualy',
+    'WhatsApp automation',
+    'Revenue teams',
+    'Inbox automation for sales and support',
+    'TR'
+  );
+
+  assert.equal(result?.length, 1);
+  assert.match(capturedPrompt, /senior SEO content strategist and B2B SaaS marketing manager/i);
+  assert.match(capturedPrompt, /qualified organic traffic/i);
+  assert.match(capturedPrompt, /one clear primary keyword and 2-4 supporting keywords/i);
+  assert.match(capturedPrompt, /Avoid generic announcement or vanity phrases/i);
+  assert.match(capturedPrompt, /ürün notu/i);
+  assert.match(capturedPrompt, /Diversify the batch across multiple categories and intent types/i);
+  assert.match(capturedPrompt, /Do not default to Vaka Analizi/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('regenerateBlogTitles rebuilds TR and EN titles with matching slugs from article bodies', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const capturedPrompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    capturedPrompts.push(String(body?.messages?.[1]?.content || ''));
+    const prompt = capturedPrompts[capturedPrompts.length - 1] || '';
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                title: /Language:\s+Turkish/i.test(prompt)
+                  ? 'WhatsApp müşteri adayı önceliklendirme rehberi'
+                  : 'WhatsApp lead prioritization guide',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await regenerateBlogTitles({
+    content: '## Giriş\n\nBu yazı WhatsApp otomasyonunda müşteri adayı önceliklendirme sürecini anlatır.',
+    contentEN: '## Introduction\n\nThis article explains WhatsApp lead prioritization workflows.',
+    currentTitle: 'Eski Başlık',
+    currentTitleEN: 'Old Title',
+    description: 'Satış ekipleri için kısa açıklama.',
+    descriptionEN: 'Short description for revenue teams.',
+    keywords: 'whatsapp otomasyonu, müşteri adayı önceliklendirme',
+  });
+
+  assert.deepEqual(result, {
+    title: 'WhatsApp müşteri adayı önceliklendirme rehberi',
+    slug: 'whatsapp-musteri-adayi-onceliklendirme-rehberi',
+    titleEN: 'WhatsApp lead prioritization guide',
+    slugEN: 'whatsapp-lead-prioritization-guide',
+  });
+  assert.equal(capturedPrompts.length, 2);
+  assert.match(capturedPrompts[0] || '', /Regenerate the article title based on the finished article below/i);
+  assert.match(capturedPrompts[0] || '', /Must be at most 70 characters/i);
+  assert.match(capturedPrompts[0] || '', /Current Title:\s+Eski Başlık/i);
+  assert.match(capturedPrompts[0] || '', /Language:\s+Turkish/i);
+  assert.match(capturedPrompts[1] || '', /Current Title:\s+Old Title/i);
+  assert.match(capturedPrompts[1] || '', /Language:\s+English/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
 });

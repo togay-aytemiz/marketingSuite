@@ -95,6 +95,13 @@ export interface TopicIdeaSuggestion {
   excludedRecentTitles?: string[];
 }
 
+export interface RegeneratedBlogTitlesResult {
+  title?: string;
+  slug?: string;
+  titleEN?: string;
+  slugEN?: string;
+}
+
 interface SeoImageAccessibilityInput {
   coverAltText?: string;
   inlineImages?: Array<Pick<BlogInlineImagePlan, 'slotId' | 'altText'>>;
@@ -169,9 +176,93 @@ const TURKISH_ASCII_TEXT_REPLACEMENTS: Array<{ pattern: RegExp; replacement: str
   { pattern: /\byazisi\b/gi, replacement: 'yazısı' },
   { pattern: /\byazi\b/gi, replacement: 'yazı' },
 ];
+const GENERIC_SEO_KEYWORD_PHRASES = new Set([
+  'announcement',
+  'duyuru',
+  'feature announcement',
+  'feature news',
+  'guncelleme',
+  'guncelleme notu',
+  'ozellik duyurusu',
+  'product update',
+  'release note',
+  'release notes',
+  'urun notu',
+]);
+const TURKISH_SLUG_CHAR_MAP: Record<string, string> = {
+  ç: 'c',
+  Ç: 'c',
+  ğ: 'g',
+  Ğ: 'g',
+  ı: 'i',
+  İ: 'i',
+  ö: 'o',
+  Ö: 'o',
+  ş: 's',
+  Ş: 's',
+  ü: 'u',
+  Ü: 'u',
+};
 
 function normalizeWhitespace(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim();
+}
+
+function normalizeKeywordComparisonKey(value: string) {
+  return normalizeWhitespace(value)
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '');
+}
+
+function normalizeSeoKeywordList(
+  value: string | null | undefined,
+  shouldNormalizeTurkish: boolean,
+  maxItems = 5
+) {
+  const rawItems = String(value || '')
+    .split(/[,\n;|]/)
+    .map((item) => normalizeWhitespace(item))
+    .filter(Boolean);
+
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+
+  for (const rawItem of rawItems) {
+    const normalizedItem = shouldNormalizeTurkish
+      ? normalizeTurkishMarketingText(rawItem)
+      : cleanGeneratedMarkdownArtifacts(rawItem);
+    const comparisonKey = normalizeKeywordComparisonKey(normalizedItem);
+
+    if (!comparisonKey || GENERIC_SEO_KEYWORD_PHRASES.has(comparisonKey) || seen.has(comparisonKey)) {
+      continue;
+    }
+
+    seen.add(comparisonKey);
+    deduped.push(normalizedItem);
+
+    if (deduped.length >= maxItems) {
+      break;
+    }
+  }
+
+  return deduped;
+}
+
+function buildKeywordStrategyInstruction(language: 'TR' | 'EN') {
+  const genericExamples = language === 'TR'
+    ? '"ürün notu", "güncelleme", "özellik duyurusu"'
+    : '"product update", "announcement", "feature news"';
+
+  return `
+KEYWORD STRATEGY:
+- Work like a B2B SaaS marketing manager optimizing for qualified organic traffic, not vanity traffic.
+- Build one clear primary keyword and 2-4 supporting keywords.
+- Prefer high-intent, product-adjacent long-tail phrases tied to real pain points, workflows, use cases, integrations, comparisons, checklists, troubleshooting, and templates.
+- Keep every keyword tightly aligned with shipped capabilities, target audience pain points, and the article angle.
+- Avoid generic announcement or vanity phrases such as ${genericExamples} unless the user explicitly asked for release notes.
+- If keyword hints are weak, broad, or off-topic, refine them into stronger SEO phrases instead of copying them literally.
+`.trim();
 }
 
 function buildSeoImageAccessibilitySummary(imageAccessibility?: SeoImageAccessibilityInput) {
@@ -512,7 +603,7 @@ export function normalizeTopicIdeaCandidate(
   recentPosts: RecentTopicReference[]
 ): TopicIdeaSuggestion | null {
   const topic = normalizeWhitespace(String(item?.topic || ''));
-  const keywords = normalizeWhitespace(String(item?.keywords || ''));
+  const keywords = normalizeSeoKeywordList(String(item?.keywords || ''), shouldNormalizeTurkish).join(', ');
   const categoryId = resolveCategoryId(item?.categoryId, sanityCategories, recentPosts);
 
   if (!topic || !keywords) {
@@ -545,6 +636,7 @@ export function normalizeTopicIdeaCandidate(
 
 function slugifyText(value: string) {
   return normalizeWhitespace(value)
+    .replace(/[çÇğĞıİöÖşŞüÜ]/g, (char) => TURKISH_SLUG_CHAR_MAP[char] || char)
     .toLowerCase()
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
@@ -728,7 +820,7 @@ SANITY CATEGORY DISTRIBUTION SNAPSHOT:
 ${rows.join('\n')}
 
 IMPORTANT:
-- Prefer categories with higher PriorityScore when topic fit is reasonable.
+- Use PriorityScore as a tie-breaker when topic fit is reasonable, not a mandate to force every idea into one category.
 - PriorityScore blends coverage gap (low count) and recency gap (longer time since latest post).
 - For blog generation, return a valid "categoryId" from this list.
 `;
@@ -961,6 +1053,131 @@ ${normalized}`,
   return normalized;
 }
 
+async function regenerateSingleBlogTitle(input: {
+  content: string,
+  language: 'TR' | 'EN',
+  currentTitle?: string,
+  description?: string,
+  keywords?: string
+}) {
+  const targetLanguage = input.language;
+  const normalizedContent = cleanGeneratedMarkdownArtifacts(input.content || '');
+
+  if (!normalizedContent) {
+    return null;
+  }
+
+  const payload = await runOpenAiJson<{ title: string }>({
+    schemaName: 'regenerate_blog_title',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        title: { type: 'string' },
+      },
+      required: ['title'],
+    },
+    temperature: 0.4,
+    prompt: `
+You are a senior SEO editor.
+Regenerate the article title based on the finished article below.
+
+Language: ${getLanguageName(targetLanguage)}
+Current Title: ${normalizeWhitespace(input.currentTitle || '') || 'Not provided'}
+Description: ${normalizeWhitespace(input.description || '') || 'Not provided'}
+Additional Keyword Hints: ${normalizeWhitespace(input.keywords || '') || 'Not provided'}
+${buildSearchIntentTitleGuidance(targetLanguage)}
+
+Rules:
+- Generate one fresh reader-facing SEO title.
+- The title must reflect the actual article content.
+- Must be at most 70 characters.
+- Prefer clear search-intent framing when it matches the article.
+- Do not return quotes, bullets, or commentary.
+
+Article Outline:
+${buildArticleOutlineSnapshot(normalizedContent, 10)}
+
+Blog Content:
+${normalizedContent}
+`,
+  });
+
+  const normalizedTitle = targetLanguage === 'TR'
+    ? normalizeTurkishMarketingText(payload?.title || '')
+    : cleanGeneratedMarkdownArtifacts(payload?.title || '');
+
+  if (!normalizedTitle) {
+    return null;
+  }
+
+  const title = await ensureTitleWithinLimit(normalizedTitle, targetLanguage);
+
+  return {
+    title,
+    slug: slugifyText(title),
+  };
+}
+
+export async function regenerateBlogTitles(input: {
+  content?: string | null,
+  contentEN?: string | null,
+  currentTitle?: string,
+  currentTitleEN?: string,
+  description?: string,
+  descriptionEN?: string,
+  keywords?: string
+}) {
+  const regenerationTasks: Array<Promise<{ language: 'TR' | 'EN'; title: string; slug: string } | null>> = [];
+
+  if (normalizeWhitespace(input.content || '')) {
+    regenerationTasks.push(
+      regenerateSingleBlogTitle({
+        content: input.content || '',
+        language: 'TR',
+        currentTitle: input.currentTitle,
+        description: input.description,
+        keywords: input.keywords,
+      }).then((result) => (result ? { language: 'TR', ...result } : null))
+    );
+  }
+
+  if (normalizeWhitespace(input.contentEN || '')) {
+    regenerationTasks.push(
+      regenerateSingleBlogTitle({
+        content: input.contentEN || '',
+        language: 'EN',
+        currentTitle: input.currentTitleEN,
+        description: input.descriptionEN,
+        keywords: input.keywords,
+      }).then((result) => (result ? { language: 'EN', ...result } : null))
+    );
+  }
+
+  if (regenerationTasks.length === 0) {
+    return null;
+  }
+
+  const results = await Promise.all(regenerationTasks);
+  const payload: RegeneratedBlogTitlesResult = {};
+
+  for (const result of results) {
+    if (!result) {
+      continue;
+    }
+
+    if (result.language === 'TR') {
+      payload.title = result.title;
+      payload.slug = result.slug;
+    } else {
+      payload.titleEN = result.title;
+      payload.slugEN = result.slug;
+    }
+  }
+
+  return Object.keys(payload).length > 0 ? payload : null;
+}
+
 async function translateBlogPostToEnglish(input: {
   productName: string;
   featureName: string;
@@ -1004,7 +1221,7 @@ Feature/Focus Area: ${input.featureName || 'General'}
 Target Audience: ${input.targetAudience || 'General audience'}
 Product Description: ${input.description || 'A modern software solution.'}
 Topic/Instruction: ${input.topic || 'Not provided'}
-Keywords Input: ${input.keywords || 'Not provided'}
+Additional Keyword Hints: ${input.keywords || 'Not provided'}
 Tone: ${input.tone}
 Length: ${input.length}
 ${QUALY_SITE_GUARDRAILS}
@@ -1069,7 +1286,7 @@ Feature/Focus Area: ${input.featureName || 'General'}
 Target Audience: ${input.targetAudience || 'General audience'}
 Product Description: ${input.description || 'A modern software solution.'}
 Topic/Instruction: ${input.topic || 'Not provided'}
-Keywords Input: ${input.keywords || 'Not provided'}
+Additional Keyword Hints: ${input.keywords || 'Not provided'}
 Tone: ${input.tone}
 Language: ${getLanguageName(input.language)}
 ${QUALY_SITE_GUARDRAILS}
@@ -1372,6 +1589,8 @@ export const generateBlogPost = async (
   const primaryLanguage = getPrimaryLanguage(normalizedLanguage);
   const targetLang = getLanguageName(primaryLanguage);
   const blogLength = resolveBlogLengthRequirements(length);
+  const normalizedKeywordHints = normalizeSeoKeywordList(keywords, primaryLanguage === 'TR');
+  const keywordStrategyInstruction = buildKeywordStrategyInstruction(primaryLanguage);
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
@@ -1415,7 +1634,7 @@ ${strategyContextInstruction}
 
 BLOG INPUT:
 Topic/Instruction: ${topic || 'No explicit topic provided. Decide the best topic based on context.'}
-Keywords Input: ${keywords || 'No keywords provided. Decide and integrate 3-5 strong keywords yourself.'}
+Additional Keyword Hints: ${normalizedKeywordHints.length > 0 ? normalizedKeywordHints.join(', ') : 'None provided. Decide and integrate 3-5 strong keywords yourself.'}
 Tone: ${tone}
 Length: ${blogLength.label}
 Language: ${targetLang}
@@ -1424,6 +1643,7 @@ ${recentPostsInstruction}
 ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
 ${titleGuidanceInstruction}
+${keywordStrategyInstruction}
 
 CRITICAL RULES:
 1. Every title field must be <= ${MAX_SEO_TITLE_LENGTH} chars.
@@ -1489,7 +1709,7 @@ CRITICAL RULES:
       targetAudience,
       description,
       topic,
-      keywords,
+      keywords: normalizedKeywordHints.join(', '),
       tone,
       language: primaryLanguage,
       title: postData.title,
@@ -1609,7 +1829,7 @@ Rules:
       targetAudience,
       description,
       topic,
-      keywords,
+      keywords: normalizedKeywordHints.join(', '),
       tone,
       length: blogLength.label,
       title: postData.title,
@@ -1807,6 +2027,7 @@ export const generateTopicIdeas = async (
   const primaryLanguage = getPrimaryLanguage(language);
   const shouldNormalizeTurkish = primaryLanguage === 'TR';
   const titleGuidanceInstruction = buildSearchIntentTitleGuidance(primaryLanguage);
+  const keywordStrategyInstruction = buildKeywordStrategyInstruction(primaryLanguage);
 
   const payload = await runOpenAiJson<{ items: TopicIdeaSuggestion[] }>({
     schemaName: 'topic_ideas',
@@ -1837,7 +2058,7 @@ export const generateTopicIdeas = async (
       required: ['items'],
     },
     prompt: `
-You are a senior content strategist.
+You are a senior SEO content strategist and B2B SaaS marketing manager.
 Decide the best next blog topics and keyword sets.
 
 Product Name: ${productName || 'Not provided'}
@@ -1850,13 +2071,20 @@ ${recencyInstruction}
 ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
 ${titleGuidanceInstruction}
+${keywordStrategyInstruction}
+
+BATCH DIVERSITY RULES:
+- Diversify the batch across multiple categories and intent types when reasonable.
+- Do not put all 5 ideas into the same category just because it has the highest PriorityScore.
+- If category snapshot exists, aim for at least 3 distinct categories across the 5 ideas when fit is reasonable.
+- Do not default to Vaka Analizi / Case Study framing unless the context clearly includes customer proof, outcomes, or metrics.
 
 Already generated topics (avoid overlap):
 ${existingTopics.length > 0 ? existingTopics.map((topic) => `- ${topic}`).join('\n') : '- none'}
 
 Return exactly 5 items:
 - topic: title/topic suggestion
-- keywords: 3-5 comma separated SEO keywords
+- keywords: 3-5 comma separated SEO keywords, with the primary keyword first
 - categoryId:
   - if SANITY CATEGORY DISTRIBUTION SNAPSHOT exists, choose a valid category ID from it
   - otherwise return null
