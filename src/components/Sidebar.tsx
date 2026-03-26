@@ -5,9 +5,10 @@ import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas
 import { fetchSanityCategories, fetchSanityPosts } from '../services/sanity';
 import type { IntegrationStatus } from '../services/integrations';
 import {
+  buildInternalLinkAudit,
   buildEditorialPostUrl,
   buildEditorialResearchSummaryPosts,
-  extractUsedInternalBlogLinks,
+  extractValidatedUsedInternalBlogLinks,
 } from '../lib/editorial-context';
 import { BLOG_LENGTH_OPTIONS } from '../lib/blog-length';
 
@@ -101,6 +102,10 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   };
 
   const normalizeWhitespace = (value: string | null | undefined) => String(value || '').replace(/\s+/g, ' ').trim();
+  const formatInternalLinkLanguagesTr = (languages: Array<'TR' | 'EN'>) => {
+    const labels = languages.map((language) => language === 'EN' ? 'English' : 'Turkish');
+    return labels.length === 2 ? `${labels[0]} ve ${labels[1]}` : labels[0] || 'aktif';
+  };
 
   const formatPostDate = (value?: string) => {
     const normalized = normalizeWhitespace(value);
@@ -130,17 +135,15 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       fetchSanityCategories(preferredLanguage),
     ]);
 
-    const researchPosts = buildEditorialResearchSummaryPosts(
-      posts.map((post) => ({
-        title: post.title,
-        slug: post.slug?.current,
-        excerpt: post.excerpt,
-        category: post.category?.title,
-        categoryId: post.category?._id,
-        language: post.language,
-        publishedAt: post.publishedAt || post.updatedAt,
-      }))
-    );
+    const researchPosts = posts.map((post) => ({
+      title: post.title,
+      slug: post.slug?.current,
+      excerpt: post.excerpt,
+      category: post.category?.title,
+      categoryId: post.category?._id,
+      language: post.language,
+      publishedAt: post.publishedAt || post.updatedAt,
+    }));
     const categoryOptions = categories.map((category) => ({
       id: category._id,
       name: category.title,
@@ -251,7 +254,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setIsGeneratingTopics(true);
 
     const { researchPosts, categoryOptions } = await loadEditorialResearchContext();
-    const recentPosts = researchPosts.map((post) => ({
+    const summaryPosts = buildEditorialResearchSummaryPosts(researchPosts);
+    const recentPosts = summaryPosts.map((post) => ({
       title: post.title,
       excerpt: post.excerpt,
       category: post.category,
@@ -396,10 +400,19 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
 
   if (state.activeModule === 'blog') {
     const researchPosts = buildEditorialResearchSummaryPosts(state.blogResearchPosts);
-    const usedInternalLinks = extractUsedInternalBlogLinks([
+    const usedInternalLinks = extractValidatedUsedInternalBlogLinks([
       { content: state.blogContent, language: 'TR' },
       { content: state.blogContentEN, language: 'EN' },
-    ]);
+    ], state.blogResearchPosts);
+    const internalLinkAudit = buildInternalLinkAudit({
+      appLanguage: state.language,
+      autoInternalLinks: state.autoInternalLinks,
+      reviewedPosts: state.blogResearchPosts,
+      usedLinks: usedInternalLinks,
+    });
+    const visibleInternalLinks = state.language === 'BOTH'
+      ? usedInternalLinks
+      : usedInternalLinks.filter((link) => link.language === state.language);
 
     return (
       <div className={`w-80 bg-white border-r border-zinc-200 h-screen flex flex-col shrink-0 z-30 transition-opacity duration-300 ${isGenerating ? 'pointer-events-none opacity-60' : ''}`}>
@@ -608,23 +621,40 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                 <div className="rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
                   <div className="flex items-center justify-between gap-3">
                     <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">Internal Links Used</p>
-                    <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600">
-                      {usedInternalLinks.filter(l => l.language === 'TR').length}
+                    <span className={`rounded-full border bg-white px-2 py-0.5 text-[11px] font-medium ${
+                      internalLinkAudit.shouldWarn
+                        ? 'border-amber-200 text-amber-700'
+                        : 'border-zinc-200 text-zinc-600'
+                    }`}>
+                      {internalLinkAudit.usedInTargetLanguagesCount}
                     </span>
                   </div>
 
-                  {usedInternalLinks.filter(l => l.language === 'TR').length > 0 ? (
+                  {internalLinkAudit.shouldWarn && (
+                    <div className="mt-3 rounded-md border border-amber-200 bg-amber-50 px-3 py-3 text-[11px] leading-5 text-amber-800">
+                      Auto internal linking acik, ancak {formatInternalLinkLanguagesTr(internalLinkAudit.missingLanguages)} draftinda henuz internal link gorunmuyor. Draft ekranindaki <strong>Add Internal Links</strong> aksiyonunu tekrar calistir.
+                    </div>
+                  )}
+
+                  {visibleInternalLinks.length > 0 ? (
                     <div className="mt-3 space-y-2">
-                      {usedInternalLinks.filter(l => l.language === 'TR').map((link) => (
+                      {visibleInternalLinks.map((link) => (
                         <div key={`${link.language}:${link.href}`} className="flex items-center justify-between gap-2 px-1">
                           <span className="truncate text-xs text-zinc-700" title={link.label || link.href}>{link.label || link.href}</span>
+                          {state.language === 'BOTH' && (
+                            <span className="shrink-0 rounded-full border border-zinc-200 bg-white px-1.5 py-0.5 text-[10px] font-medium text-zinc-500">
+                              {link.language}
+                            </span>
+                          )}
                         </div>
                       ))}
                     </div>
                   ) : (
                     <div className="mt-3 rounded-md border border-dashed border-zinc-200 bg-white px-3 py-3 text-[11px] leading-5 text-zinc-500">
                       {state.autoInternalLinks
-                        ? 'Henuz internal link eklenmedi.'
+                        ? internalLinkAudit.status === 'unavailable'
+                          ? 'Kontrol icin uygun reviewed post havuzu henuz hazir degil.'
+                          : 'Henuz internal link eklenmedi.'
                         : 'Auto internal linking kapali.'}
                     </div>
                   )}

@@ -26,9 +26,11 @@ export type PlanningLanguage = 'TR' | 'EN' | 'BOTH';
 
 export interface PlanningRecentPost {
   title: string;
+  slug?: string;
   excerpt?: string;
   category?: string;
   categoryId?: string;
+  language?: string;
   publishedAt?: string;
 }
 
@@ -121,9 +123,11 @@ export function buildEditorialPlanningSnapshot(
     .sort((a, b) => parseDateScore(b.publishedAt || b.updatedAt) - parseDateScore(a.publishedAt || a.updatedAt))
     .map((post) => ({
       title: normalizeWhitespace(post.title),
+      slug: normalizeWhitespace(post.slug?.current) || undefined,
       excerpt: normalizeWhitespace(post.excerpt),
       category: normalizeWhitespace(post.category?.title),
       categoryId: normalizeWhitespace(post.category?._id) || undefined,
+      language: normalizeWhitespace(post.language) || undefined,
       publishedAt: normalizeWhitespace(post.publishedAt || post.updatedAt) || undefined,
     }))
     .filter((post) => post.title);

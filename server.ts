@@ -23,9 +23,15 @@ import {
   generateSocialPosts,
   generateTopicIdeas,
   regenerateBlogTitles,
+  type SanityPostReference,
 } from './src/server/openai';
 import { fetchEditorialPlanningSnapshot } from './src/server/editorial-planner';
 import { normalizeCategoryOptions } from './src/lib/blog-category-resolution';
+import {
+  preferNonEmptyArray,
+  shouldLoadEditorialSnapshot,
+  shouldRequireEditorialCategories,
+} from './src/lib/editorial-request-fallback';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity, syncEditorialCategories } from './src/server/sanity';
 import { getStrategyContextSnapshot } from './src/server/strategy-context';
 
@@ -93,6 +99,33 @@ function getStatusPayload() {
       projectPath: qualyProjectPath,
     },
   };
+}
+
+function normalizeSanityPostReferences(value: unknown): SanityPostReference[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+
+  return value.flatMap((item) => {
+    const slug = typeof item?.slug === 'string'
+      ? item.slug
+      : typeof item?.slug?.current === 'string'
+        ? item.slug.current
+        : '';
+
+    if (!slug.trim() || typeof item?.title !== 'string' || !item.title.trim()) {
+      return [];
+    }
+
+    return [{
+      title: item.title,
+      slug,
+      excerpt: typeof item?.excerpt === 'string' ? item.excerpt : undefined,
+      category: typeof item?.category === 'string' ? item.category : undefined,
+      language: typeof item?.language === 'string' ? item.language : undefined,
+      publishedAt: typeof item?.publishedAt === 'string' ? item.publishedAt : undefined,
+    }];
+  });
 }
 
 async function startServer() {
@@ -190,9 +223,7 @@ async function startServer() {
 
     try {
       let result: unknown;
-      const needsEditorialPlanning = status.sanity.configured && (
-        action === 'generate-topic-ideas' || action === 'generate-blog-post'
-      );
+      const needsEditorialPlanning = status.sanity.configured && shouldLoadEditorialSnapshot(action);
       let editorialSnapshot: Awaited<ReturnType<typeof fetchEditorialPlanningSnapshot>> | null = null;
       if (needsEditorialPlanning) {
         try {
@@ -202,7 +233,7 @@ async function startServer() {
         }
       }
 
-      if (needsEditorialPlanning && status.sanity.configured) {
+      if (shouldRequireEditorialCategories(action) && status.sanity.configured) {
         const effectiveCategories = normalizeCategoryOptions(
           (editorialSnapshot?.sanityCategories || req.body.sanityCategories || []) as Array<{ id: string; name: string }>
         );
@@ -317,7 +348,7 @@ async function startServer() {
             req.body.length,
             req.body.language,
             req.body.imageStyle,
-            editorialSnapshot?.recentPosts || req.body.sanityPosts || [],
+            normalizeSanityPostReferences(preferNonEmptyArray(req.body.sanityPosts, editorialSnapshot?.recentPosts)),
             editorialSnapshot?.sanityCategories || req.body.sanityCategories || []
           );
           break;
@@ -327,7 +358,7 @@ async function startServer() {
         case 'add-internal-links':
           result = await addInternalLinks(
             req.body.currentContent,
-            req.body.sanityPosts || [],
+            normalizeSanityPostReferences(preferNonEmptyArray(req.body.sanityPosts, editorialSnapshot?.recentPosts)),
             req.body.language,
             req.body.productName,
             req.body.featureName
@@ -342,7 +373,7 @@ async function startServer() {
             req.body.targetAudience,
             req.body.description,
             req.body.language,
-            req.body.sanityPosts
+            normalizeSanityPostReferences(preferNonEmptyArray(req.body.sanityPosts, editorialSnapshot?.recentPosts))
           );
           break;
         case 'generate-social-posts':

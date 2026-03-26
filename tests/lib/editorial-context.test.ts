@@ -2,9 +2,12 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  buildInternalLinkAudit,
   buildEditorialPostUrl,
   buildEditorialResearchSummaryPosts,
   extractUsedInternalBlogLinks,
+  extractValidatedUsedInternalBlogLinks,
+  sanitizeInternalBlogLinks,
 } from '../../src/lib/editorial-context';
 
 test('buildEditorialResearchSummaryPosts deduplicates by title and keeps newest posts first', () => {
@@ -68,4 +71,115 @@ See [Lead routing playbook](/en/blog/lead-routing-playbook) for the related work
       language: 'EN',
     },
   ]);
+});
+
+test('extractValidatedUsedInternalBlogLinks excludes bogus draft urls and keeps only real reviewed posts', () => {
+  const links = extractValidatedUsedInternalBlogLinks(
+    [
+      {
+        language: 'TR',
+        content: `
+Bkz. [Gercek Yazi](/blog/gercek-yazi) ve [Uydurma Link](/blog/olmayan-link).
+`,
+      },
+    ],
+    [
+      {
+        slug: 'gercek-yazi',
+        language: 'tr',
+      },
+    ]
+  );
+
+  assert.deepEqual(links, [
+    {
+      label: 'Gercek Yazi',
+      href: '/blog/gercek-yazi',
+      language: 'TR',
+    },
+  ]);
+});
+
+test('buildInternalLinkAudit warns when reviewed Turkish posts exist but no Turkish internal link is used', () => {
+  const audit = buildInternalLinkAudit({
+    appLanguage: 'TR',
+    autoInternalLinks: true,
+    reviewedPosts: [
+      {
+        title: 'Musteri Skorlama Rehberi',
+        slug: 'musteri-skorlama-rehberi',
+        publishedAt: '2026-03-20T10:00:00.000Z',
+      },
+    ],
+    usedLinks: [],
+  });
+
+  assert.equal(audit.shouldWarn, true);
+  assert.deepEqual(audit.missingLanguages, ['TR']);
+  assert.equal(audit.usedInTargetLanguagesCount, 0);
+});
+
+test('buildInternalLinkAudit flags only the missing language for bilingual drafts', () => {
+  const audit = buildInternalLinkAudit({
+    appLanguage: 'BOTH',
+    autoInternalLinks: true,
+    reviewedPosts: [
+      {
+        title: 'Turkce Yazi',
+        slug: 'turkce-yazi',
+        publishedAt: '2026-03-20T10:00:00.000Z',
+      },
+      {
+        title: 'English Post',
+        slug: 'english-post',
+        language: 'en',
+        publishedAt: '2026-03-21T10:00:00.000Z',
+      },
+    ],
+    usedLinks: [
+      {
+        label: 'Turkce Yazi',
+        href: '/blog/turkce-yazi',
+        language: 'TR',
+      },
+    ],
+  });
+
+  assert.equal(audit.shouldWarn, true);
+  assert.deepEqual(audit.missingLanguages, ['EN']);
+  assert.equal(audit.usedInTargetLanguagesCount, 1);
+  assert.equal(audit.reviewedCounts.EN, 1);
+});
+
+test('sanitizeInternalBlogLinks removes invented internal blog urls that are not in the system post list', () => {
+  const sanitized = sanitizeInternalBlogLinks(
+    'Bkz. [Gercek Yazi](/blog/gercek-yazi) ve [Uydurma Link](/blog/olmayan-link).',
+    [
+      {
+        slug: 'gercek-yazi',
+        language: 'tr',
+      },
+    ],
+    'TR'
+  );
+
+  assert.equal(sanitized.includes('[Gercek Yazi](/blog/gercek-yazi)'), true);
+  assert.equal(sanitized.includes('/blog/olmayan-link'), false);
+  assert.equal(sanitized.includes('Uydurma Link'), true);
+});
+
+test('sanitizeInternalBlogLinks rewrites wrong-language blog prefixes to the real allowed url', () => {
+  const sanitized = sanitizeInternalBlogLinks(
+    'See [Lead routing](/blog/lead-routing-playbook) for details.',
+    [
+      {
+        slug: 'lead-routing-playbook',
+        language: 'en',
+      },
+    ],
+    'EN'
+  );
+
+  assert.equal(sanitized.includes('[Lead routing](/en/blog/lead-routing-playbook)'), true);
+  assert.equal(sanitized.includes('](/blog/lead-routing-playbook)'), false);
 });

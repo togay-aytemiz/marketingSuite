@@ -2,6 +2,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 
 import {
+  addInternalLinks,
   buildInternalBlogUrl,
   buildSearchIntentTitleGuidance,
   buildImagePlanContextSnapshot,
@@ -10,6 +11,7 @@ import {
   buildCategoryDistributionInstruction,
   analyzeSeoForBlog,
   cleanGeneratedMarkdownArtifacts,
+  editBlogPost,
   ensureFinalCallToAction,
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
@@ -121,6 +123,15 @@ test('normalizes common english marketing terms to Turkish equivalents', () => {
   assert.equal(normalized.includes('müşteri adayı puanlama'), true);
   assert.equal(normalized.includes('dönüşüm oranı'), true);
   assert.equal(normalized.includes('etkileşim'), true);
+});
+
+test('preserves markdown link urls while normalizing Turkish marketing terms', () => {
+  const normalized = enforceTurkishMarketingTerminology(
+    'Bkz. [Lead routing rehberi](/blog/lead-routing-rehberi).'
+  );
+
+  assert.equal(normalized.includes('[müşteri adayı routing rehberi](/blog/lead-routing-rehberi)'), true);
+  assert.equal(normalized.includes('/blog/müşteri adayı-routing-rehberi'), false);
 });
 
 test('normalizes common ASCII Turkish title phrases into natural Turkish characters', () => {
@@ -559,11 +570,224 @@ test('generateBlogPost expands under-length drafts before building the image pla
   assert.equal(callIndex, 3);
   assert.match(prompts[0] || '', /Minimum word count:\s+1200/i);
   assert.match(prompts[0] || '', /Recommended H2 sections:\s+5-6/i);
+  assert.match(prompts[0] || '', /Use target keywords naturally across the article/i);
+  assert.match(prompts[0] || '', /Avoid repetitive wording, repeated sentence openings, and obvious phrase recycling/i);
   assert.match(prompts[1] || '', /Expand this markdown article/i);
   assert.match(prompts[1] || '', /Target range:\s+1200-1700 words/i);
+  assert.match(prompts[1] || '', /Use target keywords naturally across the article/i);
+  assert.match(prompts[1] || '', /Avoid repetitive wording, repeated sentence openings, and obvious phrase recycling/i);
   assert.match(prompts[2] || '', /ARTICLE CONTEXT SNAPSHOT:/i);
   assert.match(prompts[2] || '', /H2:\s+Yapay Zeka ile Onceliklendirme/i);
+  assert.equal(result?.content.includes('<!-- BLOG_IMAGE:image-1 -->'), true);
+  assert.equal(result?.inlineImages.length, 1);
+  assert.equal(result?.inlineImages[0]?.slotId, 'image-1');
+  assert.equal(result?.inlineImages[0]?.altText?.toLocaleLowerCase('tr-TR').includes('for sales team'), false);
   assert.equal(result?.content.includes('genisletilmis taslak'), true);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('editBlogPost prompt reinforces natural keyword use and non-repetitive writing', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  let capturedPrompt = '';
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    capturedPrompt = String(body?.messages?.[1]?.content || '');
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '## Giris\n\nRevize metin.',
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await editBlogPost(
+    '## Giris\n\nEski metin.',
+    'Anahtar kelime kullanimini daha dogal hale getir.',
+    'Qualy',
+    'Lead Scoring',
+    'Sales teams',
+    'AI sales assistant',
+    'TR'
+  );
+
+  assert.equal(result?.includes('## Giris'), true);
+  assert.match(capturedPrompt, /Use target keywords naturally across the revised article/i);
+  assert.match(capturedPrompt, /Avoid repetitive wording, repeated sentence openings, and obvious phrase recycling/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost keeps inline alt text in Turkish for shared TR/BOTH drafts', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callIndex += 1;
+
+    let content = '';
+    if (callIndex === 1) {
+      content = JSON.stringify({
+        title: 'Yapay Zeka ile Musteri Analizi',
+        description: 'TR draft aciklamasi.',
+        slug: 'yapay-zeka-musteri-analizi',
+        categoryId: null,
+        content: [
+          'Giris paragrafi.',
+          '',
+          '## Musteri Analizi',
+          '',
+          `${Array.from({ length: 900 }, () => 'analiz').join(' ')} detay.`,
+          '',
+          '<!-- BLOG_IMAGE:image-1 -->',
+        ].join('\n'),
+      });
+    } else if (callIndex === 2) {
+      content = JSON.stringify({
+        coverImagePrompt: 'Data flow for customer analysis',
+        coverAltText: 'Musteri analizi kapak gorseli',
+        inlineImages: [
+          {
+            slotId: 'image-1',
+            prompt: 'Editorial photo: team analyzing customer data',
+            altText: 'Business team reviewing AI dashboard',
+          },
+        ],
+      });
+    } else {
+      throw new Error(`Unexpected OpenAI call count: ${callIndex}`);
+    }
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateBlogPost(
+    'Qualy',
+    'Customer Analysis',
+    'Sales teams',
+    'AI sales assistant',
+    'Yapay zeka ile musteri analizi rehberi',
+    'musteri analizi, yapay zeka',
+    'Professional & Informative',
+    'Short (800 - 1100 words)',
+    'TR',
+    'Editorial B2B (minimal cover, realistic inline, brandless)'
+  );
+
+  assert.equal(result?.inlineImages.length, 1);
+  assert.equal(result?.inlineImages[0]?.slotId, 'image-1');
+  assert.equal(result?.inlineImages[0]?.altText?.includes('Business team'), false);
+  assert.equal(result?.inlineImages[0]?.altText?.toLocaleLowerCase('tr-TR').includes('görseli'), true);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost inserts two inline image slots for long articles when none are returned', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    callIndex += 1;
+
+    const content = callIndex === 1
+      ? JSON.stringify({
+          title: 'Uzun Veri Analizi Rehberi',
+          description: 'Uzun TR taslak.',
+          slug: 'uzun-veri-analizi-rehberi',
+          categoryId: null,
+          content: [
+            'Giris paragrafi.',
+            '',
+            '## Veri Toplama',
+            '',
+            `${Array.from({ length: 850 }, () => 'veri').join(' ')} toplama detaylari.`,
+            '',
+            '## Skorlama',
+            '',
+            `${Array.from({ length: 850 }, () => 'skorlama').join(' ')} skorlama detaylari.`,
+            '',
+            '## Operasyonel Uygulama',
+            '',
+            `${Array.from({ length: 850 }, () => 'operasyon').join(' ')} uygulama detaylari.`,
+          ].join('\n'),
+        })
+      : JSON.stringify({
+          coverImagePrompt: 'Data operations workflow',
+          coverAltText: 'Veri analizi kapak gorseli',
+          inlineImages: [],
+        });
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateBlogPost(
+    'Qualy',
+    'Analytics',
+    'Revenue teams',
+    'AI sales assistant',
+    'Uzun veri analizi rehberi',
+    'veri analizi, skorlama',
+    'Professional & Informative',
+    'Long (1800 - 2600 words)',
+    'TR',
+    'Editorial B2B (minimal cover, realistic inline, brandless)'
+  );
+
+  assert.equal(callIndex, 2);
+  assert.equal(result?.content.includes('<!-- BLOG_IMAGE:image-1 -->'), true);
+  assert.equal(result?.content.includes('<!-- BLOG_IMAGE:image-2 -->'), true);
+  assert.equal(result?.inlineImages.length, 2);
 
   global.fetch = originalFetch;
   process.env.OPENAI_API_KEY = originalOpenAiKey;
@@ -802,6 +1026,159 @@ test('regenerateBlogTitles rebuilds TR and EN titles with matching slugs from ar
   assert.match(capturedPrompts[0] || '', /Language:\s+Turkish/i);
   assert.match(capturedPrompts[1] || '', /Current Title:\s+Old Title/i);
   assert.match(capturedPrompts[1] || '', /Language:\s+English/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('addInternalLinks retries when the first AI revision does not add any real internal links', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    const content = prompts.length === 1
+      ? '## Giris\n\nMusteri adayi yonetimi sureci burada anlatiliyor.'
+      : '## Giris\n\n[Lead routing rehberi](/blog/lead-routing-rehberi) ile sureci detaylandir.';
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await addInternalLinks(
+    '## Giris\n\nMusteri adayi yonetimi sureci burada anlatiliyor.',
+    [
+      {
+        title: 'Lead routing rehberi',
+        slug: 'lead-routing-rehberi',
+        language: 'tr',
+      },
+    ],
+    'TR',
+    'Qualy',
+    'Lead routing'
+  );
+
+  assert.equal(prompts.length, 2);
+  assert.match(prompts[1] || '', /You must add at least one exact internal link/i);
+  assert.equal(result?.includes('](/blog/lead-routing-rehberi)'), true);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('addInternalLinks accepts a repaired real link even when the draft previously contained a bogus internal url', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '## Giris\n\n[Gercek rehber](/blog/gercek-rehber) ile sureci tamamla.',
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await addInternalLinks(
+    '## Giris\n\n[Uydurma link](/blog/olmayan-link) ile sureci anlat.',
+    [
+      {
+        title: 'Gercek rehber',
+        slug: 'gercek-rehber',
+        language: 'tr',
+      },
+    ],
+    'TR',
+    'Qualy',
+    'Lead routing'
+  );
+
+  assert.equal(prompts.length, 1);
+  assert.equal(result?.includes('](/blog/gercek-rehber)'), true);
+  assert.equal(result?.includes('/blog/olmayan-link'), false);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('addInternalLinks injects a deterministic fallback link when both AI passes fail', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: '## Giris\n\nMusteri adayi yonetimi sureci burada anlatiliyor.',
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await addInternalLinks(
+    '## Giris\n\nMusteri adayi yonetimi sureci burada anlatiliyor.',
+    [
+      {
+        title: 'Musteri adayi skorlama yontemleri',
+        slug: 'musteri-adayi-skorlama-yontemleri',
+        language: 'tr',
+      },
+    ],
+    'TR',
+    'Qualy',
+    'Lead routing'
+  );
+
+  assert.equal(prompts.length, 2);
+  assert.equal(result?.includes('](/blog/musteri-adayi-skorlama-yontemleri)'), true);
 
   global.fetch = originalFetch;
   process.env.OPENAI_API_KEY = originalOpenAiKey;

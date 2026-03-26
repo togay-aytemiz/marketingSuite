@@ -18,9 +18,14 @@ import {
   migrateLegacyImagePromptsToSlots,
   normalizeEditorialMarkdown,
 } from '../lib/blog-draft-media';
-import { buildEditorialResearchSummaryPosts } from '../lib/editorial-context';
+import {
+  buildEditorialResearchSummaryPosts,
+  buildInternalLinkAudit,
+  extractValidatedUsedInternalBlogLinks,
+} from '../lib/editorial-context';
 import { finalizeCoverImagePromptText, finalizeInlineImagePromptText } from '../lib/editorial-cover-style';
-import { buildPublishReadiness, extractMarkdownLinkCount } from '../lib/blog-publish-readiness';
+import { buildMediaGenerationSummary, resolveMediaPreviewState } from '../lib/blog-media-progress';
+import { buildPublishReadiness } from '../lib/blog-publish-readiness';
 import { ensureFinalCallToAction } from '../lib/blog-call-to-action';
 import { resolveDraftCategory } from '../lib/blog-category-resolution';
 import { buildSanityPublishMessage } from '../lib/blog-publish-feedback';
@@ -83,6 +88,14 @@ function buildSeoImageAccessibilityInput(
       altText: String(image.altText || '').trim(),
     })),
   };
+}
+
+function countInternalBlogLinksForLanguage(
+  content: string | null | undefined,
+  language: 'TR' | 'EN',
+  posts: Array<{ slug?: string; language?: string }>
+) {
+  return extractValidatedUsedInternalBlogLinks([{ content, language }], posts).length;
 }
 
 function collectInlineImageReferences(contents: Array<string | null | undefined>) {
@@ -182,10 +195,14 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const [isGeneratingSocial, setIsGeneratingSocial] = useState(false);
   const [isRegeneratingTitles, setIsRegeneratingTitles] = useState(false);
   const [socialPosts, setSocialPosts] = useState<{ twitter: string; linkedin: string } | null>(null);
-  const [isGeneratingCover, setIsGeneratingCover] = useState(false);
+  const [coverLoadingByLanguage, setCoverLoadingByLanguage] = useState<Record<'TR' | 'EN', boolean>>({
+    TR: false,
+    EN: false,
+  });
   const [knownSanityCategories, setKnownSanityCategories] = useState<Array<{ id: string; name: string }>>([]);
   const [knownRecentPosts, setKnownRecentPosts] = useState<Array<{
     title: string;
+    slug: string;
     excerpt?: string;
     category?: string;
     categoryId?: string;
@@ -201,6 +218,19 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const openAiConfigured = integrationStatus.openai.configured;
   const geminiConfigured = integrationStatus.gemini.configured;
   const sanityConfigured = integrationStatus.sanity.configured;
+
+  const setCoverLoading = (language: 'TR' | 'EN', loading: boolean) => {
+    setCoverLoadingByLanguage((prev) => {
+      if (prev[language] === loading) {
+        return prev;
+      }
+
+      return {
+        ...prev,
+        [language]: loading,
+      };
+    });
+  };
 
   const updateInlineImage = (imageKey: string, patch: Partial<BlogInlineImagePlan>) => {
     setState((prev) => ({
@@ -300,6 +330,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       setKnownSanityCategories(categories.map((category) => ({ id: category._id, name: category.title })));
       setKnownRecentPosts(posts.map((post) => ({
         title: post.title,
+        slug: post.slug.current,
         excerpt: post.excerpt,
         category: post.category?.title,
         categoryId: post.category?._id,
@@ -392,19 +423,23 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const handleGenerateCover = async () => {
     const prompt = viewLanguage === 'EN' ? state.blogCoverPromptEN : state.blogCoverPrompt;
     if (!prompt) return;
-    setIsGeneratingCover(true);
+    const targetLanguage = viewLanguage;
     const promptSeed = normalizeCoverPromptForState(prompt);
     const finalizedPrompt = finalizeCoverImagePromptText(promptSeed);
-    const url = await generateBlogImage(finalizedPrompt, true);
-    if (url) {
-      setState(prev => ({
-        ...prev,
-        ...(viewLanguage === 'EN'
-          ? { blogCoverUrlEN: url, blogCoverPromptEN: promptSeed || finalizedPrompt }
-          : { blogCoverUrl: url, blogCoverPrompt: promptSeed || finalizedPrompt })
-      }));
+    setCoverLoading(targetLanguage, true);
+    try {
+      const url = await generateBlogImage(finalizedPrompt, true);
+      if (url) {
+        setState(prev => ({
+          ...prev,
+          ...(targetLanguage === 'EN'
+            ? { blogCoverUrlEN: url, blogCoverPromptEN: promptSeed || finalizedPrompt }
+            : { blogCoverUrl: url, blogCoverPrompt: promptSeed || finalizedPrompt })
+        }));
+      }
+    } finally {
+      setCoverLoading(targetLanguage, false);
     }
-    setIsGeneratingCover(false);
   };
 
   const handleGenerateImage = async (image: BlogInlineImagePlan) => {
@@ -500,9 +535,15 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     coverImagePromptEN?: string;
     inlineImages?: BlogInlineImagePlan[];
   }) => {
-    const generatedCoverTR = response.coverImagePrompt
-      ? await generateBlogImage(response.coverImagePrompt, true)
-      : null;
+    let generatedCoverTR: string | null = null;
+    if (response.coverImagePrompt) {
+      setCoverLoading('TR', true);
+      try {
+        generatedCoverTR = await generateBlogImage(response.coverImagePrompt, true);
+      } finally {
+        setCoverLoading('TR', false);
+      }
+    }
 
     let generatedCoverEN: string | null = null;
     if (response.coverImagePromptEN) {
@@ -513,7 +554,12 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       ) {
         generatedCoverEN = generatedCoverTR;
       } else {
-        generatedCoverEN = await generateBlogImage(response.coverImagePromptEN, true);
+        setCoverLoading('EN', true);
+        try {
+          generatedCoverEN = await generateBlogImage(response.coverImagePromptEN, true);
+        } finally {
+          setCoverLoading('EN', false);
+        }
       }
     }
 
@@ -577,17 +623,15 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       setKnownSanityCategories(sanityCategoriesForPrompt);
       setState((prev) => ({
         ...prev,
-        blogResearchPosts: buildEditorialResearchSummaryPosts(
-          posts.map((post) => ({
-            title: post.title,
-            slug: post.slug.current,
-            excerpt: post.excerpt,
-            category: post.category?.title,
-            categoryId: post.category?._id,
-            language: post.language,
-            publishedAt: post.publishedAt || post.updatedAt,
-          }))
-        ),
+        blogResearchPosts: posts.map((post) => ({
+          title: post.title,
+          slug: post.slug.current,
+          excerpt: post.excerpt,
+          category: post.category?.title,
+          categoryId: post.category?._id,
+          language: post.language,
+          publishedAt: post.publishedAt || post.updatedAt,
+        })),
       }));
     }
 
@@ -628,6 +672,16 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         isEnglishOnly ? primaryContentWithCta : secondaryContentWithCta,
         response.inlineImages || []
       );
+      const generatedUsedInternalLinks = extractValidatedUsedInternalBlogLinks([
+        { content: normalizedDraft.blogContent, language: 'TR' },
+        { content: normalizedDraft.blogContentEN, language: 'EN' },
+      ], sanityPostsForPrompt);
+      const generatedInternalLinkAudit = buildInternalLinkAudit({
+        appLanguage: state.language,
+        autoInternalLinks: state.autoInternalLinks,
+        reviewedPosts: sanityPostsForPrompt,
+        usedLinks: generatedUsedInternalLinks,
+      });
       const resolvedCategory = resolveDraftCategoryWithFallback(
         response.categoryId || response.category?.id || null,
         response.category || null,
@@ -689,7 +743,14 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       setIsAnalyzingSeo(false);
 
       if (state.autoInternalLinks && sanityConfigured && sanityPostsForPrompt.length > 0) {
-        setSanityMessage({ type: 'success', text: 'Ic linkler otomatik olarak eklendi.' });
+        setSanityMessage({
+          type: generatedInternalLinkAudit.status === 'ok' ? 'success' : 'error',
+          text: generatedInternalLinkAudit.status === 'ok'
+            ? 'Ic linkler otomatik olarak eklendi.'
+            : generatedInternalLinkAudit.status === 'warning'
+              ? 'Bazi draft dillerinde internal link eklenemedi. Reviewed post havuzunu kontrol edip Retry Internal Links kullan.'
+              : 'Otomatik internal link eklenemedi. Reviewed post havuzunu kontrol edip Retry Internal Links kullan.',
+        });
         setTimeout(() => setSanityMessage(null), 3000);
       }
 
@@ -847,7 +908,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.targetAudience,
       state.description,
       viewLanguage, // Pass the specific language being edited
-      undefined
+      knownRecentPosts
     );
 
     if (updatedContent) {
@@ -1028,8 +1089,19 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.productName,
       state.featureName
     );
+    const eligiblePosts = posts.map((p) => ({
+      slug: p.slug.current,
+      language: p.language,
+    })).filter((post) => {
+      const postLanguage = String(post.language || '').toLowerCase();
+      const targetLanguage = viewLanguage === 'EN' ? 'en' : 'tr';
+      return !postLanguage || postLanguage === targetLanguage;
+    });
+    const previousInternalLinkCount = countInternalBlogLinksForLanguage(currentContent, viewLanguage, eligiblePosts);
+    const nextInternalLinkCount = countInternalBlogLinksForLanguage(updatedContent || currentContent, viewLanguage, eligiblePosts);
+    const didAddInternalLinks = nextInternalLinkCount > previousInternalLinkCount;
     
-    if (updatedContent) {
+    if (updatedContent && didAddInternalLinks) {
       const normalizedDraft = normalizeDraftBundle(
         viewLanguage === 'EN' ? state.blogContent : updatedContent,
         viewLanguage === 'EN' ? updatedContent : state.blogContentEN,
@@ -1071,6 +1143,11 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
         }));
       }
       setIsAnalyzingSeo(false);
+    } else if (updatedContent) {
+      setSanityMessage({
+        type: 'error',
+        text: 'Gercek bir internal link eklenemedi. Reviewed post havuzunu kontrol edip tekrar dene.',
+      });
     } else {
       setSanityMessage({ type: 'error', text: 'Failed to add internal links.' });
     }
@@ -1114,6 +1191,16 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   };
 
   const currentContent = viewLanguage === 'EN' ? state.blogContentEN : state.blogContent;
+  const usedInternalLinks = extractValidatedUsedInternalBlogLinks([
+    { content: state.blogContent, language: 'TR' },
+    { content: state.blogContentEN, language: 'EN' },
+  ], state.blogResearchPosts);
+  const internalLinkAudit = buildInternalLinkAudit({
+    appLanguage: state.language,
+    autoInternalLinks: state.autoInternalLinks,
+    reviewedPosts: state.blogResearchPosts,
+    usedLinks: usedInternalLinks,
+  });
   const currentWordCount = currentContent ? currentContent.trim().split(/\s+/).filter(Boolean).length : 0;
   
   const inlinePlacements = buildInlineImagePlacementSummaries(currentContent).map((placement) => ({
@@ -1128,11 +1215,25 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
   const currentCoverPrompt = viewLanguage === 'EN' ? state.blogCoverPromptEN : state.blogCoverPrompt;
   const currentCoverAltText = viewLanguage === 'EN' ? state.blogCoverAltTextEN : state.blogCoverAltText;
   const currentCoverUrl = viewLanguage === 'EN' ? state.blogCoverUrlEN : state.blogCoverUrl;
+  const currentCoverLoading = coverLoadingByLanguage[viewLanguage];
+  const currentCoverPreviewState = resolveMediaPreviewState({
+    kind: 'cover',
+    loading: currentCoverLoading,
+    imageUrl: currentCoverUrl,
+  });
   const effectiveCategory = state.blogCategory || resolveDraftCategoryWithFallback(null);
   const readyInlineImageCount = state.blogInlineImages.filter((image) => {
     const key = getBlogInlineImageKey(image);
     return Boolean((key ? blogImages[key]?.url : null) || image.dataUrl);
   }).length;
+  const inlineLoadingCount = state.blogInlineImages.reduce((count, image) => {
+    const key = getBlogInlineImageKey(image);
+    return count + (key && blogImages[key]?.loading ? 1 : 0);
+  }, 0);
+  const mediaGenerationSummary = buildMediaGenerationSummary({
+    coverLoading: currentCoverLoading,
+    inlineLoadingCount,
+  });
   const publishReadiness = buildPublishReadiness({
     language: state.language as 'TR' | 'EN' | 'BOTH',
     title: state.blogTitle,
@@ -1149,7 +1250,7 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     autoInternalLinks: state.autoInternalLinks,
     sanityConfigured,
   });
-  const currentInternalLinkCount = extractMarkdownLinkCount(currentContent) || 0;
+  const currentInternalLinkCount = usedInternalLinks.filter((link) => link.language === viewLanguage).length;
 
   const advanceWorkflowStage = () => {
     if (workflowStage === 'draft') {
@@ -1177,6 +1278,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
     ? isPublishing || !sanityConfigured || !publishReadiness.canPublish
     : !hasAnyDraftContent;
   const currentSeoAnalysis = viewLanguage === 'EN' ? state.seoAnalysisEN : state.seoAnalysis;
+  const currentViewInternalLinkNeedsAttention = internalLinkAudit.missingLanguages.includes(viewLanguage);
+  const currentViewReviewedPostCount = internalLinkAudit.reviewedCounts[viewLanguage];
   const contentSurfaceWidth = workflowStage === 'draft' ? 'max-w-[1180px]' : workflowStage === 'media' ? 'max-w-[1280px]' : 'max-w-[1240px]';
   const workflowStages = [
     { id: 'draft' as const, label: 'Article', description: 'Read the article as a finished publication draft.' },
@@ -1287,10 +1390,14 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                           <button
                             onClick={handleAddInternalLinks}
                             disabled={isLinking || !sanityConfigured}
-                            className="flex items-center gap-1.5 rounded-xl border border-indigo-200 bg-indigo-50 px-3.5 py-2 text-xs font-medium text-indigo-700 transition-colors hover:bg-indigo-100 disabled:opacity-50"
+                            className={`flex items-center gap-1.5 rounded-xl border px-3.5 py-2 text-xs font-medium transition-colors disabled:opacity-50 ${
+                              currentViewInternalLinkNeedsAttention
+                                ? 'border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100'
+                                : 'border-indigo-200 bg-indigo-50 text-indigo-700 hover:bg-indigo-100'
+                            }`}
                           >
                             {isLinking ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <LinkIcon className="h-3.5 w-3.5" />}
-                            {isLinking ? 'Linking...' : 'Add Internal Links'}
+                            {isLinking ? 'Linking...' : currentViewInternalLinkNeedsAttention ? 'Retry Internal Links' : 'Add Internal Links'}
                           </button>
                         )}
 
@@ -1347,7 +1454,11 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-600">
                           Stage: {currentStageMeta.label}
                         </span>
-                        <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-600">
+                        <span className={`rounded-full border px-3 py-1.5 text-xs font-medium ${
+                          currentViewInternalLinkNeedsAttention
+                            ? 'border-amber-200 bg-amber-50 text-amber-700'
+                            : 'border-zinc-200 bg-zinc-50 text-zinc-600'
+                        }`}>
                           Internal links: {currentInternalLinkCount}
                         </span>
                         <span className="rounded-full border border-zinc-200 bg-zinc-50 px-3 py-1.5 text-xs font-medium text-zinc-600">
@@ -1371,6 +1482,24 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                         {primaryStageActionLabel}
                       </button>
                     </div>
+
+                    {workflowStage === 'draft' && currentViewInternalLinkNeedsAttention && (
+                      <div className="mt-4 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3">
+                        <div className="flex items-start gap-3">
+                          <div className="mt-0.5 inline-flex rounded-xl bg-white p-2 text-amber-600 shadow-sm border border-amber-200">
+                            <AlertCircle className="h-4 w-4" />
+                          </div>
+                          <div>
+                            <p className="text-sm font-semibold text-amber-900">Internal link kontrolu gerekiyor</p>
+                            <p className="mt-1 text-sm leading-6 text-amber-900/80">
+                              Bu {viewLanguage} draft'ta henuz internal link gorunmuyor. {currentViewReviewedPostCount > 0
+                                ? `${currentViewReviewedPostCount} reviewed post mevcut; devam etmeden once Add Internal Links aksiyonunu tekrar calistir.`
+                                : 'Reviewed post havuzu gelmeden internal link eklenmeyebilir.'}
+                            </p>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
 
                   {workflowStage === 'draft' && (
@@ -1458,6 +1587,22 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                         </div>
                       </div>
 
+                      {mediaGenerationSummary && (
+                        <div className="rounded-2xl border border-indigo-100 bg-indigo-50/70 px-5 py-4">
+                          <div className="flex items-start gap-3">
+                            <div className="mt-0.5 inline-flex rounded-2xl bg-white p-2 text-indigo-500 shadow-sm border border-indigo-100">
+                              <Loader2 className="h-4 w-4 animate-spin" />
+                            </div>
+                            <div>
+                              <p className="text-sm font-semibold text-indigo-950">{mediaGenerationSummary.title}</p>
+                              <p className="mt-1 text-sm leading-6 text-indigo-900/75">
+                                {mediaGenerationSummary.description}
+                              </p>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+
                       <div className="rounded-3xl border border-zinc-200 overflow-hidden">
                         <div className="flex flex-col gap-3 border-b border-zinc-100 bg-zinc-50 px-5 py-4 lg:flex-row lg:items-center lg:justify-between">
                           <div>
@@ -1468,10 +1613,10 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                           </div>
                           <button
                             onClick={handleGenerateCover}
-                            disabled={isGeneratingCover || !geminiConfigured || !currentCoverPrompt}
+                            disabled={currentCoverLoading || !geminiConfigured || !currentCoverPrompt}
                             className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 disabled:opacity-50"
                           >
-                            {isGeneratingCover ? (
+                            {currentCoverLoading ? (
                               <>
                                 <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
                                 Generating...
@@ -1526,17 +1671,23 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                           </div>
 
                           <div className="min-h-[260px] overflow-hidden rounded-[24px] border border-zinc-200 bg-zinc-50">
-                            {currentCoverUrl ? (
+                            {currentCoverPreviewState.status === 'ready' ? (
                               <img src={currentCoverUrl} alt={currentCoverAltText || 'Cover'} className="h-full w-full object-cover" />
                             ) : (
                               <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-                                <div className="mb-3 inline-flex rounded-full border border-zinc-100 bg-white p-3 text-zinc-400 shadow-sm">
-                                  <ImageIcon className="h-6 w-6" />
+                                <div className={`mb-3 inline-flex rounded-full border bg-white p-3 shadow-sm ${
+                                  currentCoverPreviewState.status === 'loading'
+                                    ? 'border-indigo-100 text-indigo-500'
+                                    : 'border-zinc-100 text-zinc-400'
+                                }`}>
+                                  {currentCoverPreviewState.status === 'loading' ? (
+                                    <Loader2 className="h-6 w-6 animate-spin" />
+                                  ) : (
+                                    <ImageIcon className="h-6 w-6" />
+                                  )}
                                 </div>
-                                <p className="text-sm font-medium text-zinc-700">Cover not generated yet</p>
-                                <p className="mt-1 text-xs leading-6 text-zinc-500">
-                                  Use the media prompt on the left to create a calm, publication-grade cover.
-                                </p>
+                                <p className="text-sm font-medium text-zinc-700">{currentCoverPreviewState.title}</p>
+                                <p className="mt-1 text-xs leading-6 text-zinc-500">{currentCoverPreviewState.description}</p>
                               </div>
                             )}
                           </div>
@@ -1562,6 +1713,12 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                               const imageState = imageKey ? blogImages[imageKey] : null;
                               const placement = inlinePlacements.find((item) => item.slotId === normalizeBlogImageSlotId(image.slotId));
                               const previewUrl = image.dataUrl || imageState?.url || null;
+                              const isInlineGenerating = Boolean(imageState?.loading);
+                              const inlinePreviewState = resolveMediaPreviewState({
+                                kind: 'inline',
+                                loading: isInlineGenerating,
+                                imageUrl: previewUrl,
+                              });
 
                               return (
                                 <div key={imageKey || imageIndex} className="overflow-hidden rounded-2xl border border-zinc-200">
@@ -1578,10 +1735,10 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                                     </div>
                                     <button
                                       onClick={() => handleGenerateImage(image)}
-                                      disabled={imageState?.loading || !geminiConfigured}
+                                      disabled={isInlineGenerating || !geminiConfigured}
                                       className="inline-flex items-center gap-2 rounded-xl border border-zinc-200 bg-white px-3.5 py-2 text-xs font-medium text-zinc-700 shadow-sm transition-colors hover:bg-zinc-50 disabled:opacity-50"
                                     >
-                                      {imageState?.loading ? (
+                                      {isInlineGenerating ? (
                                         <>
                                           <Loader2 className="h-3.5 w-3.5 animate-spin text-indigo-500" />
                                           Generating...
@@ -1621,17 +1778,23 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                                     </div>
 
                                     <div className="min-h-[240px] overflow-hidden rounded-[24px] border border-zinc-200 bg-zinc-50">
-                                      {previewUrl ? (
+                                      {inlinePreviewState.status === 'ready' ? (
                                         <img src={previewUrl} alt={image.altText || 'Blog image'} className="h-full w-full object-cover" />
                                       ) : (
                                         <div className="flex h-full flex-col items-center justify-center px-8 text-center">
-                                          <div className="mb-3 inline-flex rounded-full border border-zinc-100 bg-white p-3 text-zinc-400 shadow-sm">
-                                            <ImageIcon className="h-6 w-6" />
+                                          <div className={`mb-3 inline-flex rounded-full border bg-white p-3 shadow-sm ${
+                                            inlinePreviewState.status === 'loading'
+                                              ? 'border-indigo-100 text-indigo-500'
+                                              : 'border-zinc-100 text-zinc-400'
+                                          }`}>
+                                            {inlinePreviewState.status === 'loading' ? (
+                                              <Loader2 className="h-6 w-6 animate-spin" />
+                                            ) : (
+                                              <ImageIcon className="h-6 w-6" />
+                                            )}
                                           </div>
-                                          <p className="text-sm font-medium text-zinc-700">Inline visual not generated</p>
-                                          <p className="mt-1 text-xs leading-6 text-zinc-500">
-                                            Keep this image realistic, restrained, and suitable for an editorial article.
-                                          </p>
+                                          <p className="text-sm font-medium text-zinc-700">{inlinePreviewState.title}</p>
+                                          <p className="mt-1 text-xs leading-6 text-zinc-500">{inlinePreviewState.description}</p>
                                         </div>
                                       )}
                                     </div>

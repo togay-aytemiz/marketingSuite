@@ -27,14 +27,17 @@ export interface SanityPostReference {
   slug: string;
   excerpt?: string;
   category?: string;
+  language?: string;
   publishedAt?: string;
 }
 
 export interface RecentTopicReference {
   title: string;
+  slug?: string;
   excerpt?: string;
   category?: string;
   categoryId?: string;
+  language?: string;
   publishedAt?: string;
 }
 

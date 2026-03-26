@@ -53,8 +53,12 @@ test('deduplicates translation pairs by translationKey for BOTH while preserving
 
   assert.equal(snapshot.recentPosts.length, 2);
   assert.equal(snapshot.recentPosts[0]?.title, 'EN Title');
+  assert.equal(snapshot.recentPosts[0]?.slug, 'same-post-en');
+  assert.equal(snapshot.recentPosts[0]?.language, 'en');
   assert.equal(snapshot.recentPosts[0]?.categoryId, 'cat-a');
   assert.equal(snapshot.recentPosts[1]?.title, 'Diger Yazi');
+  assert.equal(snapshot.recentPosts[1]?.slug, 'diger-yazi');
+  assert.equal(snapshot.recentPosts[1]?.language, 'tr');
   assert.deepEqual(snapshot.sanityCategories, [
     { id: 'cat-a', name: 'Mesajlasma' },
     { id: 'cat-b', name: 'Otomasyon' },

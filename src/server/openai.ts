@@ -15,6 +15,10 @@ import {
   stripOuterMarkdownFence,
 } from '../lib/blog-draft-media';
 import {
+  extractValidatedUsedInternalBlogLinks,
+  sanitizeInternalBlogLinks,
+} from '../lib/editorial-context';
+import {
   ensureFinalCallToAction,
   hasFinalCallToAction,
 } from '../lib/blog-call-to-action';
@@ -51,14 +55,17 @@ export interface SanityPostReference {
   slug: string;
   excerpt?: string;
   category?: string;
+  language?: string;
   publishedAt?: string;
 }
 
 export interface RecentTopicReference {
   title: string;
+  slug?: string;
   excerpt?: string;
   category?: string;
   categoryId?: string;
+  language?: string;
   publishedAt?: string;
 }
 
@@ -208,6 +215,29 @@ function normalizeWhitespace(value: string) {
   return String(value || '').replace(/\s+/g, ' ').trim();
 }
 
+function preserveUrlTokens(value: string, transform: (input: string) => string) {
+  const replacements = new Map<string, string>();
+  let tokenIndex = 0;
+  const nextToken = (originalValue: string) => {
+    const token = `__URL_TOKEN_${tokenIndex}__`;
+    tokenIndex += 1;
+    replacements.set(token, originalValue);
+    return token;
+  };
+
+  const protectedValue = String(value || '')
+    .replace(/\]\(([^)\s]+)\)/g, (_match, url: string) => `](${nextToken(url)})`)
+    .replace(/\bhttps?:\/\/[^\s)]+/g, (url) => nextToken(url));
+
+  let restored = transform(protectedValue);
+
+  for (const [token, originalValue] of replacements.entries()) {
+    restored = restored.replaceAll(token, originalValue);
+  }
+
+  return restored;
+}
+
 function normalizeKeywordComparisonKey(value: string) {
   return normalizeWhitespace(value)
     .toLowerCase()
@@ -262,6 +292,22 @@ KEYWORD STRATEGY:
 - Keep every keyword tightly aligned with shipped capabilities, target audience pain points, and the article angle.
 - Avoid generic announcement or vanity phrases such as ${genericExamples} unless the user explicitly asked for release notes.
 - If keyword hints are weak, broad, or off-topic, refine them into stronger SEO phrases instead of copying them literally.
+  `.trim();
+}
+
+function buildBlogWritingQualityInstruction(mode: 'draft' | 'expand' | 'revise' | 'translate') {
+  const articleReference = mode === 'revise'
+    ? 'revised article'
+    : mode === 'translate'
+      ? 'adapted article'
+      : 'article';
+
+  return `
+WRITING QUALITY:
+- Use target keywords naturally across the ${articleReference}. Do not force exact-match repetition into every paragraph.
+- If a keyword starts sounding forced, vary the phrasing while preserving the same search intent.
+- Avoid repetitive wording, repeated sentence openings, and obvious phrase recycling.
+- Keep transitions and sentence rhythms varied so the draft reads like an editor-reviewed publication.
 `.trim();
 }
 
@@ -440,32 +486,239 @@ export function buildImagePlanContextSnapshot(content: string, contentEN?: strin
 }
 
 export function enforceTurkishMarketingTerminology(value: string) {
-  let normalized = String(value || '');
+  return preserveUrlTokens(value, (input) => {
+    let normalized = input;
 
-  for (const item of TURKISH_MARKETING_TERM_REPLACEMENTS) {
-    normalized = normalized.replace(item.pattern, item.replacement);
-  }
+    for (const item of TURKISH_MARKETING_TERM_REPLACEMENTS) {
+      normalized = normalized.replace(item.pattern, item.replacement);
+    }
 
-  return normalized;
+    return normalized;
+  });
 }
 
 export function normalizeTurkishTextQuality(value: string) {
-  let normalized = String(value || '');
+  return preserveUrlTokens(value, (input) => {
+    let normalized = input;
 
-  for (const item of TURKISH_ASCII_TEXT_REPLACEMENTS) {
-    normalized = normalized.replace(
-      item.pattern,
-      (match) => applyTurkishCasePattern(match, item.replacement)
-    );
-  }
+    for (const item of TURKISH_ASCII_TEXT_REPLACEMENTS) {
+      normalized = normalized.replace(
+        item.pattern,
+        (match) => applyTurkishCasePattern(match, item.replacement)
+      );
+    }
 
-  return normalized;
+    return normalized;
+  });
 }
 
 function normalizeTurkishMarketingText(value: string) {
   return cleanGeneratedMarkdownArtifacts(
     normalizeTurkishTextQuality(enforceTurkishMarketingTerminology(value))
   );
+}
+
+const INLINE_IMAGE_AUXILIARY_HEADING_REGEX = /^(s[ıi]k sorulan sorular|frequently asked questions|faq|sonraki ad[ıi]m|next step)\b/i;
+
+function resolveTargetInlineImageCount(lengthKey: 'short' | 'medium' | 'long') {
+  return lengthKey === 'long' ? 2 : 1;
+}
+
+function selectDistributedIndices(total: number, desiredCount: number) {
+  const selected: number[] = [];
+  const used = new Set<number>();
+
+  for (let offset = 0; offset < desiredCount; offset += 1) {
+    let candidate = Math.floor(((offset + 1) * (total + 1)) / (desiredCount + 1)) - 1;
+    candidate = Math.max(0, Math.min(total - 1, candidate));
+
+    while (used.has(candidate) && candidate < total - 1) {
+      candidate += 1;
+    }
+    while (used.has(candidate) && candidate > 0) {
+      candidate -= 1;
+    }
+
+    if (!used.has(candidate)) {
+      used.add(candidate);
+      selected.push(candidate);
+    }
+  }
+
+  return selected.sort((left, right) => left - right);
+}
+
+function getNextInlineImageSlotId(slotIds: Set<string>) {
+  let counter = 1;
+  while (slotIds.has(`image-${counter}`)) {
+    counter += 1;
+  }
+
+  const slotId = `image-${counter}`;
+  slotIds.add(slotId);
+  return slotId;
+}
+
+function normalizeInlineAltSubject(value: string | null | undefined, fallback: string) {
+  const normalized = normalizeWhitespace(
+    cleanGeneratedMarkdownArtifacts(String(value || ''))
+      .replace(/^##+\s+/, '')
+      .replace(/[.!?:;,]+$/g, '')
+  );
+
+  return normalized || normalizeWhitespace(cleanGeneratedMarkdownArtifacts(fallback));
+}
+
+function buildInlineAltTextForSlot(
+  slotId: string,
+  title: string,
+  content: string,
+  contentEN: string | undefined,
+  language: 'TR' | 'EN'
+) {
+  const placements = [
+    ...buildInlineImagePlacementSummaries(content),
+    ...buildInlineImagePlacementSummaries(contentEN || ''),
+  ];
+  const placement = placements.find((item) => normalizeBlogImageSlotId(item.slotId) === slotId);
+  const subject = normalizeInlineAltSubject(placement?.heading, title || 'Blog image');
+
+  if (language === 'TR') {
+    return normalizeTurkishMarketingText(`${subject} için blog görseli`);
+  }
+
+  return cleanGeneratedMarkdownArtifacts(`${subject} blog image`);
+}
+
+function ensureInlineImageSlotCoverageForLength(
+  content: string,
+  desiredCount: number
+) {
+  const cleaned = cleanGeneratedMarkdownArtifacts(content);
+  if (!cleaned || desiredCount <= 0) {
+    return cleaned;
+  }
+
+  const existingSlotIds = new Set(extractBlogImageSlotIds(cleaned));
+  if (existingSlotIds.size >= desiredCount) {
+    return cleaned;
+  }
+
+  const blocks = cleaned
+    .split(/\n{2,}/)
+    .map((block) => block.trim())
+    .filter(Boolean);
+  if (blocks.length === 0) {
+    return cleaned;
+  }
+
+  const headingInsertions = blocks
+    .map((block, index) => {
+      const normalized = block.trim();
+      if (!/^##\s+/.test(normalized)) {
+        return null;
+      }
+
+      const heading = normalizeInlineAltSubject(normalized, '');
+      if (!heading || INLINE_IMAGE_AUXILIARY_HEADING_REGEX.test(heading)) {
+        return null;
+      }
+
+      let insertionIndex = index + 1;
+      while (insertionIndex < blocks.length) {
+        const candidate = blocks[insertionIndex]?.trim() || '';
+        if (!candidate || candidate.startsWith('<!-- BLOG_IMAGE:')) {
+          insertionIndex += 1;
+          continue;
+        }
+        if (/^##+#\s+/.test(candidate)) {
+          break;
+        }
+        insertionIndex += 1;
+        break;
+      }
+
+      return Math.min(insertionIndex, blocks.length);
+    })
+    .filter((value): value is number => typeof value === 'number');
+
+  const paragraphInsertions = blocks
+    .map((block, index) => {
+      const normalized = block.trim();
+      if (!normalized || normalized.startsWith('<!-- BLOG_IMAGE:') || /^##+#\s+/.test(normalized)) {
+        return null;
+      }
+
+      return index + 1;
+    })
+    .filter((value): value is number => typeof value === 'number');
+
+  const missingCount = desiredCount - existingSlotIds.size;
+  const insertionPoints: number[] = [];
+  const usedInsertionPoints = new Set<number>();
+
+  const addInsertionPoints = (points: number[], count: number) => {
+    if (count <= 0 || points.length === 0) {
+      return;
+    }
+
+    const selected = selectDistributedIndices(points.length, Math.min(count, points.length));
+    for (const selectedIndex of selected) {
+      const insertionPoint = points[selectedIndex];
+      if (typeof insertionPoint === 'number' && !usedInsertionPoints.has(insertionPoint)) {
+        usedInsertionPoints.add(insertionPoint);
+        insertionPoints.push(insertionPoint);
+      }
+    }
+  };
+
+  addInsertionPoints(headingInsertions, missingCount);
+
+  if (insertionPoints.length < missingCount) {
+    addInsertionPoints(
+      paragraphInsertions.filter((insertionPoint) => !usedInsertionPoints.has(insertionPoint)),
+      missingCount - insertionPoints.length
+    );
+  }
+
+  if (insertionPoints.length === 0) {
+    insertionPoints.push(blocks.length);
+  }
+
+  const nextBlocks = [...blocks];
+  for (const insertionPoint of insertionPoints.sort((left, right) => right - left)) {
+    nextBlocks.splice(insertionPoint, 0, buildBlogImageSlotMarker(getNextInlineImageSlotId(existingSlotIds)));
+  }
+
+  return nextBlocks.join('\n\n').trim();
+}
+
+function injectFallbackInternalLink(
+  content: string,
+  post: SanityPostReference,
+  language: 'TR' | 'EN'
+) {
+  const href = buildInternalBlogUrl(post.slug, language);
+  const label = language === 'TR'
+    ? normalizeTurkishMarketingText(post.title)
+    : cleanGeneratedMarkdownArtifacts(post.title);
+  const sentence = language === 'TR'
+    ? `Bu konuda daha derin bir cerceve icin [${label}](${href}) yazisina da bakabilirsin.`
+    : `For a deeper walkthrough, see [${label}](${href}).`;
+  const sections = cleanGeneratedMarkdownArtifacts(content).split(/\n{2,}/);
+  const insertionIndex = sections.findIndex((section) => {
+    const normalizedSection = section.trim();
+    return Boolean(normalizedSection)
+      && !normalizedSection.startsWith('#')
+      && !normalizedSection.startsWith('<!-- BLOG_IMAGE:');
+  });
+
+  if (insertionIndex === -1) {
+    return `${cleanGeneratedMarkdownArtifacts(content)}\n\n${sentence}`.trim();
+  }
+
+  sections[insertionIndex] = `${sections[insertionIndex].trim()}\n\n${sentence}`.trim();
+  return sections.join('\n\n').trim();
 }
 
 export function buildSearchIntentTitleGuidance(language: 'TR' | 'EN') {
@@ -581,17 +834,28 @@ function ensureInlineImageCoverage(
   return uniqueSlotIds.map((slotId) => {
     const existing = existingBySlotId.get(slotId);
     if (existing) {
-      return existing;
+      return {
+        ...existing,
+        altText: buildInlineAltTextForSlot(
+          slotId,
+          title,
+          content,
+          contentEN,
+          shouldNormalizeTurkish ? 'TR' : 'EN'
+        ),
+      };
     }
-
-    const altText = shouldNormalizeTurkish
-      ? normalizeTurkishMarketingText(`${title} icin blog gorseli`)
-      : cleanGeneratedMarkdownArtifacts(`${title} blog image`);
 
     return {
       slotId,
       prompt: buildFallbackInlineImagePrompt(title, description, slotId, imageStyle),
-      altText,
+      altText: buildInlineAltTextForSlot(
+        slotId,
+        title,
+        content,
+        contentEN,
+        shouldNormalizeTurkish ? 'TR' : 'EN'
+      ),
     };
   });
 }
@@ -1013,6 +1277,10 @@ async function runOpenAiJson<T>(config: OpenAiChatConfig): Promise<T | null> {
 
 function buildInternalPostsList(posts: SanityPostReference[], language: 'TR' | 'EN') {
   return posts
+    .filter((post) => {
+      const normalizedLanguage = normalizeWhitespace(post.language).toLowerCase();
+      return normalizeWhitespace(post.slug) && (!normalizedLanguage || normalizedLanguage === language.toLowerCase());
+    })
     .map((post) => `- Title: "${post.title}", URL: "${buildInternalBlogUrl(post.slug, language)}"`)
     .join('\n');
 }
@@ -1212,8 +1480,8 @@ async function translateBlogPostToEnglish(input: {
     },
     temperature: 0.3,
     prompt: `
-You are a senior SEO translator and B2B SaaS editor.
-Translate/adapt this Turkish SaaS blog draft into English.
+  You are a senior SEO translator and B2B SaaS editor.
+  Translate/adapt this Turkish SaaS blog draft into English.
 
 PRODUCT CONTEXT:
 Product Name: ${input.productName || 'Our Product'}
@@ -1231,12 +1499,14 @@ Title: ${input.title}
 Description: ${input.excerpt}
 Cover Alt Text: ${input.coverAltText}
 
-Content:
-${input.content}
+  Content:
+  ${input.content}
 
-Rules:
-- Return fluent English, not literal word-for-word translation.
-- Keep the SEO intent, structure, and meaning intact.
+  ${buildBlogWritingQualityInstruction('translate')}
+
+  Rules:
+  - Return fluent English, not literal word-for-word translation.
+  - Keep the SEO intent, structure, and meaning intact.
 - titleEN must be <= ${MAX_SEO_TITLE_LENGTH} chars.
 - descriptionEN must be <= 160 chars.
 - Preserve markdown headings, bullets, FAQ structure, and spacing.
@@ -1277,8 +1547,8 @@ async function expandBlogPostToMeetLength(input: {
     },
     temperature: 0.4,
     prompt: `
-You are a senior SEO content editor.
-Expand this markdown article so it meets the requested depth and word count without losing coherence.
+  You are a senior SEO content editor.
+  Expand this markdown article so it meets the requested depth and word count without losing coherence.
 
 PRODUCT CONTEXT:
 Product Name: ${input.productName || 'Our Product'}
@@ -1300,12 +1570,14 @@ Target range: ${input.minWords}-${input.maxWords} words
 Ideal word count: around ${input.targetWords} words
 Recommended H2 sections: ${input.recommendedH2Count}
 
-CURRENT MARKDOWN:
-${input.content}
+  CURRENT MARKDOWN:
+  ${input.content}
 
-Rules:
-- Keep the same title promise, topic angle, and overall narrative arc.
-- Preserve every existing H2/H3 heading when it still fits; deepen thin sections before adding new ones.
+  ${buildBlogWritingQualityInstruction('expand')}
+
+  Rules:
+  - Keep the same title promise, topic angle, and overall narrative arc.
+  - Preserve every existing H2/H3 heading when it still fits; deepen thin sections before adding new ones.
 - Add concrete examples, decision criteria, mini checklists, and operational detail instead of filler.
 - Keep paragraphs concise, but make each section more informative.
 - Preserve every existing <!-- BLOG_IMAGE:image-x --> marker exactly as-is. Do not add or remove markers.
@@ -1591,6 +1863,7 @@ export const generateBlogPost = async (
   const blogLength = resolveBlogLengthRequirements(length);
   const normalizedKeywordHints = normalizeSeoKeywordList(keywords, primaryLanguage === 'TR');
   const keywordStrategyInstruction = buildKeywordStrategyInstruction(primaryLanguage);
+  const writingQualityInstruction = buildBlogWritingQualityInstruction('draft');
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
@@ -1644,6 +1917,7 @@ ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
 ${titleGuidanceInstruction}
 ${keywordStrategyInstruction}
+${writingQualityInstruction}
 
 CRITICAL RULES:
 1. Every title field must be <= ${MAX_SEO_TITLE_LENGTH} chars.
@@ -1652,6 +1926,8 @@ CRITICAL RULES:
 4. Add a final FAQ section with 3-4 Q&A.
 5. NEVER include script tags, JSON-LD, HTML, or code fences in article body.
 6. In content, add inline image markers only when truly useful.
+   - Short and medium drafts should include at least 1 inline image marker in a strong explanatory section.
+   - Long drafts should include 2 inline image markers spaced across different sections when possible.
 7. Inline image placement:
    - If an inline visual is necessary, insert a marker on its own line using EXACTLY this format: <!-- BLOG_IMAGE:image-1 -->
    - Use sequential ids: image-1, image-2, image-3
@@ -1738,7 +2014,12 @@ CRITICAL RULES:
     postData.slug = slugifyText(postData.title);
   }
 
+  postData.content = sanitizeInternalBlogLinks(postData.content, recentPosts, primaryLanguage);
   postData.content = ensureFinalCallToAction(postData.content, primaryLanguage, productName, featureName);
+  postData.content = ensureInlineImageSlotCoverageForLength(
+    postData.content,
+    resolveTargetInlineImageCount(blogLength.key)
+  );
 
   const imagePlanSchema: Record<string, unknown> = {
     type: 'object',
@@ -1845,7 +2126,7 @@ Rules:
     postData.titleEN = await ensureTitleWithinLimit(cleanGeneratedMarkdownArtifacts(translated.titleEN), 'EN');
     postData.descriptionEN = cleanGeneratedMarkdownArtifacts(translated.descriptionEN);
     postData.contentEN = ensureFinalCallToAction(
-      cleanGeneratedMarkdownArtifacts(translated.contentEN),
+      sanitizeInternalBlogLinks(cleanGeneratedMarkdownArtifacts(translated.contentEN), recentPosts, 'EN'),
       'EN',
       productName,
       featureName
@@ -1874,11 +2155,30 @@ export const addInternalLinks = async (
 
   const targetLanguage = getPrimaryLanguage(language);
   const postsList = buildInternalPostsList(selectedPosts, targetLanguage);
+  if (!postsList.trim()) {
+    return currentContent;
+  }
   const strategyContextInstruction = buildStrategyContextInstruction();
+  const countInternalLinks = (content: string | null | undefined) =>
+    extractValidatedUsedInternalBlogLinks([
+      {
+        content,
+        language: targetLanguage,
+      },
+    ], selectedPosts).length;
+  const finalizeLinkedContent = (content: string) => {
+    const cleaned = targetLanguage === 'TR'
+      ? normalizeTurkishMarketingText(content)
+      : cleanGeneratedMarkdownArtifacts(content);
 
-  return runOpenAiChat({
-    temperature: 0.3,
-    prompt: `
+    return ensureFinalCallToAction(
+      sanitizeInternalBlogLinks(cleaned, selectedPosts, targetLanguage),
+      targetLanguage,
+      productName || 'Qualy',
+      featureName || ''
+    );
+  };
+  const buildPrompt = (mustAddLink: boolean) => `
 You are an expert SEO content editor.
 Add natural internal links to this markdown blog post.
 
@@ -1895,19 +2195,59 @@ ${currentContent}
 Rules:
 - Add 1-3 links only when context is relevant.
 - Use markdown links with the exact provided site-relative URLs.
+- Never invent a slug, URL, or post that is not listed above.
+- Do not rewrite, summarize, or reorder the article. Only add link markup into existing relevant phrasing.
 - Keep all formatting and preserve every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
 - If any legacy [IMAGE_PROMPT: ...] token appears, leave it untouched. Do not invent new ones.
+- ${mustAddLink
+    ? 'You must add at least one exact internal link from the provided list.'
+    : 'If the article already has no internal links, prefer adding at least one exact internal link from the provided list when a contextual bridge exists.'}
 - Return only the full revised markdown.
-`,
-  }).then((result) => {
+`;
+  const existingLinkCount = countInternalLinks(currentContent);
+
+  return runOpenAiChat({
+    temperature: 0.3,
+    prompt: buildPrompt(false),
+  }).then(async (result) => {
     if (!result) {
       return result;
     }
 
-    const cleaned = targetLanguage === 'TR'
-      ? normalizeTurkishMarketingText(result)
-      : cleanGeneratedMarkdownArtifacts(result);
-    return ensureFinalCallToAction(cleaned, targetLanguage, productName || 'Qualy', featureName || '');
+    const firstPassContent = finalizeLinkedContent(result);
+    const firstPassLinkCount = countInternalLinks(firstPassContent);
+    if (firstPassLinkCount > existingLinkCount) {
+      return firstPassContent;
+    }
+
+    if (existingLinkCount > 0) {
+      return currentContent;
+    }
+
+    const retryResult = await runOpenAiChat({
+      temperature: 0.2,
+      prompt: buildPrompt(true),
+    });
+
+    if (!retryResult) {
+      return currentContent;
+    }
+
+    const secondPassContent = finalizeLinkedContent(retryResult);
+    const secondPassLinkCount = countInternalLinks(secondPassContent);
+    if (secondPassLinkCount > existingLinkCount) {
+      return secondPassContent;
+    }
+
+    const fallbackPost = selectedPosts[0];
+    if (!fallbackPost) {
+      return currentContent;
+    }
+
+    const fallbackContent = finalizeLinkedContent(
+      injectFallbackInternalLink(currentContent, fallbackPost, targetLanguage)
+    );
+    return countInternalLinks(fallbackContent) > existingLinkCount ? fallbackContent : currentContent;
   });
 };
 
@@ -1922,23 +2262,26 @@ export const editBlogPost = async (
   sanityPosts?: SanityPostReference[]
 ): Promise<string | null> => {
   const targetLanguage = getPrimaryLanguage(language);
+  const selectedPosts = sanityPosts && sanityPosts.length > 0
+    ? selectRelevantSanityPosts(
+        sanityPosts,
+        `${currentContent}\n${instruction}\n${featureName}\n${description}`,
+        14
+      )
+    : [];
+  const postsList = selectedPosts.length > 0
+    ? buildInternalPostsList(selectedPosts, targetLanguage)
+    : '';
   let internalLinksInstruction = '';
-  if (sanityPosts && sanityPosts.length > 0) {
-    const selectedPosts = selectRelevantSanityPosts(
-      sanityPosts,
-      `${currentContent}\n${instruction}\n${featureName}\n${description}`,
-      14
-    );
-    if (selectedPosts.length > 0) {
-      const postsList = buildInternalPostsList(selectedPosts, targetLanguage);
-      internalLinksInstruction = `
+  if (postsList.trim()) {
+    internalLinksInstruction = `
 Optional Internal Linking Targets:
 ${postsList}
 `;
-    }
   }
 
   const strategyContextInstruction = buildStrategyContextInstruction();
+  const writingQualityInstruction = buildBlogWritingQualityInstruction('revise');
 
   return runOpenAiChat({
     temperature: 0.6,
@@ -1953,6 +2296,7 @@ Target Audience: ${targetAudience || 'General audience'}
 Description: ${description || 'A modern software solution'}
 ${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
+${writingQualityInstruction}
 
 CURRENT BLOG:
 ${currentContent}
@@ -1965,6 +2309,7 @@ Rules:
 - Preserve markdown structure and keep every <!-- BLOG_IMAGE:image-x --> marker exactly as-is.
 - If any legacy [IMAGE_PROMPT: ...] token appears, leave it untouched. Do not invent new ones.
 - Do NOT include script tags, JSON-LD, HTML, or code fences.
+- If internal links are used, they must come only from the provided internal-link targets.
 - Return only revised markdown.
 ${internalLinksInstruction}
 `,
@@ -1976,7 +2321,14 @@ ${internalLinksInstruction}
     const cleaned = targetLanguage === 'TR'
       ? normalizeTurkishMarketingText(result)
       : cleanGeneratedMarkdownArtifacts(result);
-    return ensureFinalCallToAction(cleaned, targetLanguage, productName, featureName);
+    const validated = postsList.trim()
+      ? sanitizeInternalBlogLinks(
+          cleaned,
+          selectedPosts,
+          targetLanguage
+        )
+      : cleaned;
+    return ensureFinalCallToAction(validated, targetLanguage, productName, featureName);
   });
 };
 
