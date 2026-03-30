@@ -6,7 +6,7 @@ import { SettingsModal } from './components/SettingsModal';
 import { IntegrationSettingsModal } from './components/SanitySettingsModal';
 import { AppState } from './types';
 import { buildPersistedAppState, hydrateAppState } from './lib/app-state';
-import { extractColorPalette, generateMarketingCopy, generateFinalVisual } from './services/gemini';
+import { extractColorPalette, generateMarketingCopy, generateFinalVisual, planVisualPrompt } from './services/gemini';
 import { Settings, PenTool, Image as ImageIcon, Database } from 'lucide-react';
 import {
   checkIntegrationEndpoints,
@@ -129,6 +129,7 @@ function MainApp() {
         state.productName,
         state.featureName,
         state.description,
+        state.platform,
         state.campaignType,
         state.tone,
         state.language
@@ -150,6 +151,29 @@ function MainApp() {
 
     // Generate final visuals sequentially
     for (let i = 0; i < 4; i++) {
+      const plannedPrompt = await planVisualPrompt({
+        productName: state.productName,
+        featureName: state.featureName,
+        description: state.description,
+        headline: newHeadline,
+        subheadline: newSubheadline,
+        cta: newCta,
+        brandColor: newBrandColor,
+        platform: state.platform,
+        campaignType: state.campaignType,
+        aspectRatio: state.aspectRatio,
+        tone: state.tone,
+        designStyle: state.designStyle,
+        mode: state.mode,
+        language: state.language,
+        customInstruction: state.customInstruction,
+        campaignFocus: state.campaignFocus,
+        variationIndex: i,
+        hasScreenshots: state.images.length > 0,
+        hasReferenceImage: Boolean(state.referenceImage),
+        isMagicEdit: false,
+      });
+
       const visual = await generateFinalVisual(
         state.images,
         state.productName,
@@ -159,6 +183,7 @@ function MainApp() {
         newSubheadline,
         newCta,
         newBrandColor,
+        state.platform,
         state.campaignType,
         state.aspectRatio,
         state.tone,
@@ -170,7 +195,8 @@ function MainApp() {
         i,
         undefined,
         undefined,
-        state.referenceImage
+        state.referenceImage,
+        plannedPrompt?.prompt
       );
       
       setState(prev => {
@@ -206,6 +232,7 @@ function MainApp() {
         state.productName, 
         state.featureName, 
         state.description,
+        state.platform,
         state.campaignType,
         state.tone,
         state.language
@@ -228,6 +255,30 @@ function MainApp() {
     // Use original images directly
     const currentImagesToUse = state.images.filter(Boolean);
 
+    const plannedPrompt = await planVisualPrompt({
+      productName: state.productName,
+      featureName: state.featureName,
+      description: state.description,
+      headline: newHeadline,
+      subheadline: newSubheadline,
+      cta: newCta,
+      brandColor: newBrandColor,
+      platform: state.platform,
+      campaignType: state.campaignType,
+      aspectRatio: state.aspectRatio,
+      tone: state.tone,
+      designStyle: state.designStyle,
+      mode: state.mode,
+      language: state.language,
+      customInstruction: state.customInstruction,
+      campaignFocus: state.campaignFocus,
+      variationIndex: index,
+      hasScreenshots: currentImagesToUse.length > 0,
+      hasReferenceImage: Boolean(state.referenceImage),
+      isMagicEdit: true,
+      userComment: comment,
+    });
+
     const visual = await generateFinalVisual(
       currentImagesToUse,
       state.productName,
@@ -237,6 +288,7 @@ function MainApp() {
       newSubheadline,
       newCta,
       newBrandColor,
+      state.platform,
       state.campaignType,
       state.aspectRatio,
       state.tone,
@@ -248,7 +300,8 @@ function MainApp() {
       index,
       state.finalVisuals[index] || undefined,
       comment,
-      state.referenceImage
+      state.referenceImage,
+      plannedPrompt?.prompt
     );
 
     setState(prev => {

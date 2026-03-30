@@ -1,6 +1,6 @@
 import { buildPrompt } from '../lib/visual-prompt';
 import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
-import type { ResolvedBlogCategory } from '../types';
+import type { BlogKeywordStrategy, ResolvedBlogCategory } from '../types';
 
 export { buildPrompt };
 
@@ -45,6 +45,7 @@ export interface TopicIdeaSuggestion {
   topic: string;
   keywords: string;
   categoryId: string | null;
+  keywordStrategy?: BlogKeywordStrategy | null;
   reason?: string;
   categoryGap?: string;
   excludedRecentTitles?: string[];
@@ -60,6 +61,35 @@ export interface RegeneratedBlogTitlesResult {
   slug?: string;
   titleEN?: string;
   slugEN?: string;
+}
+
+export interface VisualPromptPlanInput {
+  productName: string;
+  featureName: string;
+  description: string;
+  headline: string;
+  subheadline: string;
+  cta: string;
+  brandColor: string;
+  platform: string;
+  campaignType: string;
+  aspectRatio: string;
+  tone: string;
+  designStyle: string;
+  mode: string;
+  language: string;
+  customInstruction: string;
+  campaignFocus: string;
+  variationIndex?: number;
+  hasScreenshots?: boolean;
+  hasReferenceImage?: boolean;
+  isMagicEdit?: boolean;
+  userComment?: string;
+}
+
+export interface VisualPromptPlanResult {
+  prompt: string;
+  styleName: string;
 }
 
 async function readApiError(response: Response) {
@@ -115,6 +145,7 @@ export async function generateMarketingCopy(
   productName: string,
   featureName: string,
   description: string,
+  platform: string,
   campaignType: string,
   tone: string,
   language: string
@@ -123,6 +154,7 @@ export async function generateMarketingCopy(
     productName,
     featureName,
     description,
+    platform,
     campaignType,
     tone,
     language,
@@ -133,18 +165,26 @@ export async function generateCopyIdeas(
   productName: string,
   featureName: string,
   description: string,
+  platform: string,
   campaignType: string,
   tone: string,
-  language: string
+  language: string,
+  ideaAngle?: string
 ) {
   return postAiAction<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>('generate-copy-ideas', {
     productName,
     featureName,
     description,
+    platform,
     campaignType,
     tone,
     language,
+    ideaAngle,
   });
+}
+
+export async function planVisualPrompt(input: VisualPromptPlanInput) {
+  return postAiAction<VisualPromptPlanResult>('plan-visual-prompt', { ...input });
 }
 
 export async function extractColorPalette(imageBase64: string): Promise<string[]> {
@@ -164,6 +204,7 @@ export const generateFinalVisual = async (
   subheadline: string,
   cta: string,
   brandColor: string,
+  platform: string,
   campaignType: string,
   aspectRatio: string,
   tone: string,
@@ -175,7 +216,8 @@ export const generateFinalVisual = async (
   variationIndex: number = 0,
   previousImage?: string,
   userComment?: string,
-  referenceImage?: string | null
+  referenceImage?: string | null,
+  plannedPrompt?: string | null
 ) =>
   postAiAction<string>('generate-final-visual', {
     images,
@@ -186,6 +228,7 @@ export const generateFinalVisual = async (
     subheadline,
     cta,
     brandColor,
+    platform,
     campaignType,
     aspectRatio,
     tone,
@@ -198,6 +241,7 @@ export const generateFinalVisual = async (
     previousImage,
     userComment,
     referenceImage,
+    plannedPrompt,
   });
 
 export const analyzeSeoForBlog = async (
@@ -240,7 +284,8 @@ export const generateBlogPost = async (
   language: string,
   imageStyle: string,
   sanityPosts?: SanityPostReference[],
-  sanityCategories?: { id: string; name: string }[]
+  sanityCategories?: { id: string; name: string }[],
+  keywordStrategy?: BlogKeywordStrategy | null
 ): Promise<BlogPostResponse | null> =>
   postAiAction<BlogPostResponse>('generate-blog-post', {
     productName,
@@ -255,6 +300,7 @@ export const generateBlogPost = async (
     imageStyle,
     sanityPosts,
     sanityCategories,
+    keywordStrategy,
   });
 
 export const generateBlogImage = async (prompt: string, isCover: boolean = false): Promise<string | null> =>

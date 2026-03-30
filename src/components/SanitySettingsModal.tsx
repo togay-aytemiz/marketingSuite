@@ -44,8 +44,11 @@ export function IntegrationSettingsModal({
           <div className="space-y-3 text-sm">
             <div className={`rounded-xl border px-4 py-3 ${integrationStatus.openai.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-amber-200 bg-amber-50 text-amber-800'}`}>
               <p className="font-medium">OpenAI Text AI {integrationStatus.openai.configured ? 'ready' : 'not configured'}</p>
+              {integrationStatus.openai.configured && (
+                <p className="text-xs mt-1 leading-relaxed">Visual Creator copy ve prompt planning, blog metin ve karar akisi burada calisir.</p>
+              )}
               {!integrationStatus.openai.configured && (
-                <p className="text-xs mt-1 leading-relaxed">Blog metin ve karar akisi icin <code>OPENAI_API_KEY</code> eklenmeli.</p>
+                <p className="text-xs mt-1 leading-relaxed">Visual Creator copy ve prompt planning ile blog metin/karar akislarini acmak icin <code>OPENAI_API_KEY</code> eklenmeli.</p>
               )}
             </div>
 
@@ -71,8 +74,11 @@ export function IntegrationSettingsModal({
 
             <div className={`rounded-xl border px-4 py-3 ${integrationStatus.gemini.configured ? 'border-emerald-200 bg-emerald-50 text-emerald-800' : 'border-zinc-200 bg-zinc-50 text-zinc-700'}`}>
               <p className="font-medium">Gemini AI {integrationStatus.gemini.configured ? 'ready' : 'not configured'}</p>
+              {integrationStatus.gemini.configured && (
+                <p className="text-xs mt-1 leading-relaxed">Visual Creator final image render ve blog image generate islemleri burada calisir.</p>
+              )}
               {!integrationStatus.gemini.configured && (
-                <p className="text-xs mt-1 leading-relaxed">AI generate islemleri icin <code>GEMINI_API_KEY</code> eklemen yeterli.</p>
+                <p className="text-xs mt-1 leading-relaxed">Visual Creator final render ve blog image generate islemleri icin <code>GEMINI_API_KEY</code> eklemen yeterli.</p>
               )}
             </div>
           </div>

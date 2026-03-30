@@ -34,12 +34,14 @@ import {
   type DraftCategoryOption,
   type DraftRecentCategoryReference,
 } from '../lib/blog-category-resolution';
+import { buildPrompt as buildVisualPromptBrief } from '../lib/visual-prompt';
 import {
   finalizeCoverImagePromptText,
   finalizeInlineImagePromptText,
   getCoverImageHouseStyleBullets,
   getInlineImageHouseStyleBullets,
 } from '../lib/editorial-cover-style';
+import { VISUAL_HOUSE_STYLE } from '../lib/visual-house-style';
 import {
   buildBlogImageSlotMarker,
   extractBlogImageSlotIds,
@@ -97,9 +99,18 @@ export interface TopicIdeaSuggestion {
   topic: string;
   keywords: string;
   categoryId: string | null;
+  keywordStrategy?: BlogKeywordStrategy | null;
   reason?: string;
   categoryGap?: string;
   excludedRecentTitles?: string[];
+}
+
+export interface BlogKeywordStrategy {
+  primaryKeyword: string;
+  secondaryKeywords: string[];
+  supportKeywords: string[];
+  longTailKeywords: string[];
+  semanticKeywords: string[];
 }
 
 export interface RegeneratedBlogTitlesResult {
@@ -107,6 +118,35 @@ export interface RegeneratedBlogTitlesResult {
   slug?: string;
   titleEN?: string;
   slugEN?: string;
+}
+
+export interface VisualPromptPlanInput {
+  productName: string;
+  featureName: string;
+  description: string;
+  headline: string;
+  subheadline: string;
+  cta: string;
+  brandColor: string;
+  platform: string;
+  campaignType: string;
+  aspectRatio: string;
+  tone: string;
+  designStyle: string;
+  mode: string;
+  language: string;
+  customInstruction: string;
+  campaignFocus: string;
+  variationIndex?: number;
+  hasScreenshots?: boolean;
+  hasReferenceImage?: boolean;
+  isMagicEdit?: boolean;
+  userComment?: string;
+}
+
+export interface VisualPromptPlanResult {
+  prompt: string;
+  styleName: string;
 }
 
 interface SeoImageAccessibilityInput {
@@ -135,6 +175,7 @@ OFFICIAL QUALY WEBSITE RULES:
 `;
 
 const TURKISH_MARKETING_TERM_REPLACEMENTS: Array<{ pattern: RegExp; replacement: string }> = [
+  { pattern: /\bour product\b/gi, replacement: 'ürün' },
   { pattern: /\blead scoring\b/gi, replacement: 'müşteri adayı puanlama' },
   { pattern: /\blead\b/gi, replacement: 'müşteri adayı' },
   { pattern: /\bconversion rate\b/gi, replacement: 'dönüşüm oranı' },
@@ -279,6 +320,108 @@ function normalizeSeoKeywordList(
   return deduped;
 }
 
+function normalizeKeywordBucketItems(
+  value: unknown,
+  shouldNormalizeTurkish: boolean,
+  maxItems: number
+) {
+  const rawItems = Array.isArray(value)
+    ? value.flatMap((item) => {
+        if (typeof item === 'string') {
+          return [item];
+        }
+
+        if (item && typeof item === 'object' && typeof (item as { term?: unknown }).term === 'string') {
+          return [(item as { term: string }).term];
+        }
+
+        return [];
+      })
+    : typeof value === 'string'
+      ? value.split(/[,\n;|]/)
+      : [];
+
+  return normalizeSeoKeywordList(rawItems.join(', '), shouldNormalizeTurkish, maxItems);
+}
+
+function buildKeywordSummaryList(strategy: BlogKeywordStrategy, maxItems = 8) {
+  const deduped: string[] = [];
+  const seen = new Set<string>();
+
+  const add = (items: string[]) => {
+    for (const item of items) {
+      const normalized = normalizeWhitespace(item);
+      const key = normalizeKeywordComparisonKey(normalized);
+      if (!normalized || !key || seen.has(key)) {
+        continue;
+      }
+
+      seen.add(key);
+      deduped.push(normalized);
+
+      if (deduped.length >= maxItems) {
+        return;
+      }
+    }
+  };
+
+  add([strategy.primaryKeyword]);
+  add(strategy.secondaryKeywords);
+  add(strategy.supportKeywords);
+  add(strategy.longTailKeywords);
+
+  return deduped.slice(0, maxItems);
+}
+
+function normalizeKeywordStrategyCandidate(
+  value: unknown,
+  fallbackKeywords: string | null | undefined,
+  shouldNormalizeTurkish: boolean
+): BlogKeywordStrategy | null {
+  const source = value && typeof value === 'object' ? value as Record<string, unknown> : null;
+  const primaryKeyword = normalizeKeywordBucketItems(source?.primaryKeyword, shouldNormalizeTurkish, 1)[0]
+    || normalizeKeywordBucketItems(fallbackKeywords, shouldNormalizeTurkish, 5)[0]
+    || '';
+
+  if (!primaryKeyword) {
+    return null;
+  }
+
+  const fallbackKeywordItems = normalizeSeoKeywordList(fallbackKeywords, shouldNormalizeTurkish, 8);
+  const secondaryKeywords = normalizeKeywordBucketItems(
+    source?.secondaryKeywords,
+    shouldNormalizeTurkish,
+    6
+  );
+  const supportKeywords = normalizeKeywordBucketItems(
+    source?.supportKeywords,
+    shouldNormalizeTurkish,
+    10
+  );
+  const longTailKeywords = normalizeKeywordBucketItems(
+    source?.longTailKeywords,
+    shouldNormalizeTurkish,
+    8
+  );
+  const semanticKeywords = normalizeKeywordBucketItems(
+    source?.semanticKeywords,
+    shouldNormalizeTurkish,
+    15
+  );
+
+  if (secondaryKeywords.length === 0 && fallbackKeywordItems.length > 1) {
+    secondaryKeywords.push(...fallbackKeywordItems.slice(1, 5));
+  }
+
+  return {
+    primaryKeyword,
+    secondaryKeywords,
+    supportKeywords,
+    longTailKeywords,
+    semanticKeywords,
+  };
+}
+
 function buildKeywordStrategyInstruction(language: 'TR' | 'EN') {
   const genericExamples = language === 'TR'
     ? '"ürün notu", "güncelleme", "özellik duyurusu"'
@@ -287,12 +430,44 @@ function buildKeywordStrategyInstruction(language: 'TR' | 'EN') {
   return `
 KEYWORD STRATEGY:
 - Work like a B2B SaaS marketing manager optimizing for qualified organic traffic, not vanity traffic.
-- Build one clear primary keyword and 2-4 supporting keywords.
+- Build one clear primary keyword, 3-6 secondary keywords, 5-10 support keywords, 4-8 long-tail keywords, and 8-15 semantic keywords.
 - Prefer high-intent, product-adjacent long-tail phrases tied to real pain points, workflows, use cases, integrations, comparisons, checklists, troubleshooting, and templates.
 - Keep every keyword tightly aligned with shipped capabilities, target audience pain points, and the article angle.
 - Avoid generic announcement or vanity phrases such as ${genericExamples} unless the user explicitly asked for release notes.
 - If keyword hints are weak, broad, or off-topic, refine them into stronger SEO phrases instead of copying them literally.
   `.trim();
+}
+
+function buildStructuredKeywordStrategyPromptBlock(
+  strategy: BlogKeywordStrategy | null | undefined,
+  language: 'TR' | 'EN'
+) {
+  if (!strategy) {
+    return `
+STRUCTURED KEYWORD STRATEGY:
+- No structured keyword strategy was provided.
+- Infer the hierarchy yourself and stay consistent: 1 primary, 3-6 secondary, 5-10 support, 4-8 long-tail, and 8-15 semantic keywords.
+`.trim();
+  }
+
+  const none = language === 'TR' ? 'yok' : 'none';
+
+  return `
+STRUCTURED KEYWORD STRATEGY:
+- Treat this hierarchy as fixed source-of-truth for the article.
+- Primary keyword: ${strategy.primaryKeyword}
+- Secondary keywords: ${strategy.secondaryKeywords.join(', ') || none}
+- Support keywords: ${strategy.supportKeywords.join(', ') || none}
+- Long-tail keywords: ${strategy.longTailKeywords.join(', ') || none}
+- Semantic keywords: ${strategy.semanticKeywords.join(', ') || none}
+
+KEYWORD USAGE RULES:
+- Primary keyword must appear naturally in the SEO title, intro, at least one H2, and the meta description.
+- Secondary keywords should be distributed across H2 sections and body copy.
+- Support keywords should deepen explanations, examples, workflows, objections, and operational detail.
+- Long-tail keywords should be used in H2/H3 and FAQ-style sections when relevant.
+- Semantic keywords should improve topical coverage naturally and must never be stuffed.
+`.trim();
 }
 
 function buildBlogWritingQualityInstruction(mode: 'draft' | 'expand' | 'revise' | 'translate') {
@@ -867,7 +1042,14 @@ export function normalizeTopicIdeaCandidate(
   recentPosts: RecentTopicReference[]
 ): TopicIdeaSuggestion | null {
   const topic = normalizeWhitespace(String(item?.topic || ''));
-  const keywords = normalizeSeoKeywordList(String(item?.keywords || ''), shouldNormalizeTurkish).join(', ');
+  const keywordStrategy = normalizeKeywordStrategyCandidate(
+    item?.keywordStrategy,
+    String(item?.keywords || ''),
+    shouldNormalizeTurkish
+  );
+  const keywords = keywordStrategy
+    ? buildKeywordSummaryList(keywordStrategy).join(', ')
+    : normalizeSeoKeywordList(String(item?.keywords || ''), shouldNormalizeTurkish).join(', ');
   const categoryId = resolveCategoryId(item?.categoryId, sanityCategories, recentPosts);
 
   if (!topic || !keywords) {
@@ -892,6 +1074,7 @@ export function normalizeTopicIdeaCandidate(
     topic: shouldNormalizeTurkish ? normalizeTurkishMarketingText(topic) : topic,
     keywords: shouldNormalizeTurkish ? normalizeTurkishMarketingText(keywords) : keywords,
     categoryId,
+    keywordStrategy,
     reason: reason || undefined,
     categoryGap: categoryGap || undefined,
     excludedRecentTitles,
@@ -1157,6 +1340,43 @@ ${context.promptText}
 
 IMPORTANT: Align all reasoning, topic decisions, and final content with this strategy context and shipped capabilities.
 `;
+}
+
+function buildVisualStrategyContextInstruction() {
+  const context = getStrategyContextSnapshot();
+  if (!context.available || !context.promptText) {
+    return '';
+  }
+
+  return `
+PRODUCT STRATEGY CONTEXT (from PRD/ROADMAP docs):
+${context.promptText}
+
+IMPORTANT: Align copy concepts, feature emphasis, and value framing with this strategy context and shipped capabilities. Do not imply features or workflows that are not yet shipped.
+`;
+}
+
+function normalizeVisualCopyContext(
+  platformOrCampaignType: string,
+  campaignTypeOrTone: string,
+  toneOrLanguage: string,
+  maybeLanguage?: string
+) {
+  if (typeof maybeLanguage === 'string') {
+    return {
+      platform: normalizeWhitespace(platformOrCampaignType) || 'General',
+      campaignType: campaignTypeOrTone,
+      tone: toneOrLanguage,
+      language: maybeLanguage,
+    };
+  }
+
+  return {
+    platform: 'General',
+    campaignType: platformOrCampaignType,
+    tone: campaignTypeOrTone,
+    language: toneOrLanguage,
+  };
 }
 
 function buildPortfolioStageInstruction(totalPostCount: number) {
@@ -1618,11 +1838,19 @@ export async function generateMarketingCopy(
   productName: string,
   featureName: string,
   description: string,
-  campaignType: string,
-  tone: string,
-  language: string
+  platformOrCampaignType: string,
+  campaignTypeOrTone: string,
+  toneOrLanguage: string,
+  maybeLanguage?: string
 ) {
+  const { platform, campaignType, tone, language } = normalizeVisualCopyContext(
+    platformOrCampaignType,
+    campaignTypeOrTone,
+    toneOrLanguage,
+    maybeLanguage
+  );
   const outputLanguage = getSingleOutputLanguageName(language);
+  const strategyContextInstruction = buildVisualStrategyContextInstruction();
   return runOpenAiJson<{ headline: string; subheadline: string; cta: string }>({
     schemaName: 'marketing_copy',
     schema: {
@@ -1641,9 +1869,11 @@ Generate high-converting copy for a SaaS marketing visual.
 Product Name: ${productName || 'Our Product'}
 Feature Name: ${featureName || 'General'}
 Description: ${description || 'A modern software solution'}
+Platform: ${platform}
 Campaign Type: ${campaignType}
 Tone: ${tone}
 Language: ${outputLanguage}
+${strategyContextInstruction}
 
 Rules:
 - headline: max 8 words
@@ -1658,11 +1888,30 @@ export async function generateCopyIdeas(
   productName: string,
   featureName: string,
   description: string,
-  campaignType: string,
-  tone: string,
-  language: string
+  platformOrCampaignType: string,
+  campaignTypeOrTone: string,
+  toneOrLanguage: string,
+  maybeLanguage?: string,
+  ideaAngle?: string
 ) {
+  const { platform, campaignType, tone, language } = normalizeVisualCopyContext(
+    platformOrCampaignType,
+    campaignTypeOrTone,
+    toneOrLanguage,
+    maybeLanguage
+  );
   const outputLanguage = getSingleOutputLanguageName(language);
+  const strategyContextInstruction = buildVisualStrategyContextInstruction();
+  const normalizedIdeaAngle = normalizeWhitespace(ideaAngle || '');
+  const ideaAngleInstruction = normalizedIdeaAngle
+    ? `
+USER COPY EMPHASIS:
+${normalizedIdeaAngle}
+
+- Use this emphasis to steer the headline, subheadline, and CTA.
+- Treat it as a priority signal, but keep the copy aligned with the campaign type, strategy context, and real product capabilities.
+`
+    : '';
   return runOpenAiJson<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>({
     schemaName: 'marketing_copy_ideas',
     schema: {
@@ -1681,11 +1930,82 @@ Generate 3 different SaaS marketing copy ideas.
 Product Name: ${productName || 'Software'}
 Feature Name: ${featureName || 'New Feature'}
 Description: ${description || 'Modern software application'}
+Platform: ${platform}
 Campaign Type: ${campaignType}
 Tone: ${tone}
 Language: ${outputLanguage}
+${ideaAngleInstruction}
+${strategyContextInstruction}
 
 Return 3 options for each field.
+`,
+  });
+}
+
+export async function generateVisualPromptPlan(
+  input: VisualPromptPlanInput
+): Promise<VisualPromptPlanResult | null> {
+  const strategyContext = getStrategyContextSnapshot();
+  const strategyContextPromptText = strategyContext.available ? strategyContext.promptText : '';
+  const brief = buildVisualPromptBrief(
+    input.hasScreenshots ? ['screenshot'] : [],
+    input.productName,
+    input.featureName,
+    input.description,
+    input.headline,
+    input.subheadline,
+    input.cta,
+    input.brandColor,
+    input.platform,
+    input.campaignType,
+    input.aspectRatio,
+    input.tone,
+    input.designStyle,
+    input.mode,
+    input.language,
+    input.customInstruction,
+    input.campaignFocus,
+    input.variationIndex || 0,
+    input.isMagicEdit ? 'previous-image' : undefined,
+    input.userComment,
+    input.hasReferenceImage ? 'reference-image' : null,
+    strategyContextPromptText
+  );
+
+  return runOpenAiJson<VisualPromptPlanResult>({
+    schemaName: 'visual_prompt_plan',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        prompt: { type: 'string' },
+        styleName: { type: 'string' },
+      },
+      required: ['prompt', 'styleName'],
+    },
+    prompt: `
+You are a senior creative director generating one production-ready Gemini image prompt for a SaaS marketing visual.
+
+The final image must stay inside the declared house style, communicate one idea immediately, and remain conversion-focused without becoming noisy.
+
+VISUAL BRIEF:
+${brief}
+
+Rules:
+- Return one production-ready Gemini render prompt in English.
+- Preserve the mandatory text exactly as provided in the brief. Do not add extra labels, captions, badges, or body copy.
+- Keep the visual inside the "${VISUAL_HOUSE_STYLE.name}" house style.
+- Respect the platform, aspect ratio, campaign type, campaign focus, custom instructions, and product strategy context.
+- If the campaign type is product promotion, do not drift into feature-announcement framing unless the brief explicitly requires it.
+- If screenshots are present, tell Gemini to simplify and redraw rather than reproduce clutter.
+- If this is a magic edit, keep the current composition stable and change only what the feedback requires.
+- Do not invent product capabilities, workflows, claims, or UI states that are not supported by the strategy context or explicit brief.
+- Avoid generic prompt filler such as "award-winning", "masterpiece", "8k", "ultra detailed", "viral", or "trending on dribbble".
+- Keep the composition minimal, scroll-stopping, and legible at a glance.
+
+Return JSON only:
+- prompt: final Gemini render prompt
+- styleName: "${VISUAL_HOUSE_STYLE.name}"
 `,
   });
 }
@@ -1854,15 +2174,27 @@ export const generateBlogPost = async (
   language: string,
   imageStyle: string,
   recentPosts: RecentTopicReference[] = [],
-  sanityCategories: { id: string; name: string }[] = []
+  sanityCategories: { id: string; name: string }[] = [],
+  keywordStrategy: BlogKeywordStrategy | null = null
 ): Promise<BlogPostResponse | null> => {
   const normalizedLanguage = normalizeAppLanguage(language, 'TR');
   const isBoth = isDualLanguage(normalizedLanguage);
   const primaryLanguage = getPrimaryLanguage(normalizedLanguage);
   const targetLang = getLanguageName(primaryLanguage);
   const blogLength = resolveBlogLengthRequirements(length);
-  const normalizedKeywordHints = normalizeSeoKeywordList(keywords, primaryLanguage === 'TR');
+  const normalizedStructuredKeywordStrategy = normalizeKeywordStrategyCandidate(
+    keywordStrategy,
+    keywords,
+    primaryLanguage === 'TR'
+  );
+  const normalizedKeywordHints = normalizedStructuredKeywordStrategy
+    ? buildKeywordSummaryList(normalizedStructuredKeywordStrategy)
+    : normalizeSeoKeywordList(keywords, primaryLanguage === 'TR');
   const keywordStrategyInstruction = buildKeywordStrategyInstruction(primaryLanguage);
+  const structuredKeywordStrategyInstruction = buildStructuredKeywordStrategyPromptBlock(
+    normalizedStructuredKeywordStrategy,
+    primaryLanguage
+  );
   const writingQualityInstruction = buildBlogWritingQualityInstruction('draft');
   const strategyContextInstruction = buildStrategyContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
@@ -1917,6 +2249,7 @@ ${categoryDistributionInstruction}
 ${portfolioStageInstruction}
 ${titleGuidanceInstruction}
 ${keywordStrategyInstruction}
+${structuredKeywordStrategyInstruction}
 ${writingQualityInstruction}
 
 CRITICAL RULES:
@@ -2396,6 +2729,36 @@ export const generateTopicIdeas = async (
               topic: { type: 'string' },
               keywords: { type: 'string' },
               categoryId: { type: ['string', 'null'] },
+              keywordStrategy: {
+                type: 'object',
+                additionalProperties: false,
+                properties: {
+                  primaryKeyword: { type: 'string' },
+                  secondaryKeywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                  supportKeywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                  longTailKeywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                  semanticKeywords: {
+                    type: 'array',
+                    items: { type: 'string' },
+                  },
+                },
+                required: [
+                  'primaryKeyword',
+                  'secondaryKeywords',
+                  'supportKeywords',
+                  'longTailKeywords',
+                  'semanticKeywords',
+                ],
+              },
               reason: { type: 'string' },
               categoryGap: { type: 'string' },
               excludedRecentTitles: {
@@ -2403,7 +2766,7 @@ export const generateTopicIdeas = async (
                 items: { type: 'string' },
               },
             },
-            required: ['topic', 'keywords', 'categoryId', 'reason', 'categoryGap', 'excludedRecentTitles'],
+            required: ['topic', 'keywords', 'categoryId', 'keywordStrategy', 'reason', 'categoryGap', 'excludedRecentTitles'],
           },
         },
       },
@@ -2436,10 +2799,16 @@ ${existingTopics.length > 0 ? existingTopics.map((topic) => `- ${topic}`).join('
 
 Return exactly 5 items:
 - topic: title/topic suggestion
-- keywords: 3-5 comma separated SEO keywords, with the primary keyword first
+- keywords: a flat comma-separated summary list for UI display, with the primary keyword first
 - categoryId:
   - if SANITY CATEGORY DISTRIBUTION SNAPSHOT exists, choose a valid category ID from it
   - otherwise return null
+- keywordStrategy:
+  - primaryKeyword: exactly 1 main keyword
+  - secondaryKeywords: 3-6 close variants or adjacent phrases
+  - supportKeywords: 5-10 coverage terms that deepen the topic
+  - longTailKeywords: 4-8 longer user-intent phrases
+  - semanticKeywords: 8-15 related terms/entities/concepts
 - reason: short explanation of why this topic is timely now
 - categoryGap: short explanation of the category coverage gap
 - excludedRecentTitles: up to 3 recent titles this idea intentionally avoids overlapping with

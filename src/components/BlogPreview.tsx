@@ -31,6 +31,7 @@ import { resolveDraftCategory } from '../lib/blog-category-resolution';
 import { buildSanityPublishMessage } from '../lib/blog-publish-feedback';
 import { convertBlogPublishMediaToWebp, convertImageDataUrlToWebp } from '../lib/blog-media-webp';
 import { syncDraftTitleHeading } from '../lib/blog-title-sync';
+import { shouldApplyBlogEditShortcut } from '../lib/blog-edit-shortcuts';
 
 interface BlogPreviewProps {
   state: AppState;
@@ -647,7 +648,8 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       state.language,
       state.blogImageStyle,
       sanityPostsForPrompt,
-      sanityCategoriesForPrompt
+      sanityCategoriesForPrompt,
+      state.blogKeywordStrategy
     );
     
     if (response) {
@@ -955,6 +957,15 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
       setIsAnalyzingSeo(false);
     }
     setIsEditing(false);
+  };
+
+  const handleEditInstructionKeyDown = (event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!shouldApplyBlogEditShortcut(event)) {
+      return;
+    }
+
+    event.preventDefault();
+    void handleEdit();
   };
 
   const handlePublishToSanity = async () => {
@@ -1529,19 +1540,23 @@ export const BlogPreview: React.FC<BlogPreviewProps> = ({ state, setState, isGen
                       </div>
 
                       <div className="border-t border-indigo-100 bg-indigo-50/60 px-6 py-4 lg:px-8">
-                        <div className="flex flex-col gap-3 lg:flex-row lg:items-center">
+                        <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
                           <div className="flex h-10 w-10 items-center justify-center rounded-2xl bg-indigo-100 text-indigo-600 shrink-0">
                             <Wand2 className="h-4 w-4" />
                           </div>
-                          <input
-                            type="text"
-                            value={editInstruction}
-                            onChange={(e) => setEditInstruction(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleEdit()}
-                            placeholder="Ask AI to edit... e.g. make the intro sharper, add pricing context, simplify the CTA"
-                            className="flex-1 rounded-2xl border border-indigo-100 bg-white px-4 py-3 text-sm text-indigo-950 shadow-sm placeholder:text-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
-                            disabled={isEditing || !openAiConfigured}
-                          />
+                          <div className="flex-1">
+                            <textarea
+                              value={editInstruction}
+                              onChange={(e) => setEditInstruction(e.target.value)}
+                              onKeyDown={handleEditInstructionKeyDown}
+                              placeholder="Ask AI to edit... e.g. make the intro sharper, add pricing context, simplify the CTA"
+                              className="min-h-[96px] w-full resize-y rounded-2xl border border-indigo-100 bg-white px-4 py-3 text-sm leading-6 text-indigo-950 shadow-sm placeholder:text-indigo-300 focus:border-indigo-500 focus:ring-2 focus:ring-indigo-500"
+                              disabled={isEditing || !openAiConfigured}
+                            />
+                            <p className="mt-2 text-[11px] leading-5 text-indigo-500/80">
+                              Use multiple lines if needed. Cmd/Ctrl+Enter to apply.
+                            </p>
+                          </div>
                           <button
                             onClick={handleEdit}
                             disabled={isEditing || !editInstruction.trim() || !openAiConfigured}

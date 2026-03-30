@@ -1,6 +1,7 @@
 import type { BlogInlineImagePlan } from './lib/blog-image-slots';
 import { DEFAULT_BLOG_LENGTH, type BlogLengthOption } from './lib/blog-length';
 import type { AppLanguage } from './lib/app-language';
+import { VISUAL_CREATOR_DEFAULTS } from './lib/visual-house-style';
 
 export interface SeoAnalysis {
   score: number;
@@ -22,6 +23,14 @@ export interface BlogTopicIdeaRationale {
   excludedRecentTitles?: string[];
 }
 
+export interface BlogKeywordStrategy {
+  primaryKeyword: string;
+  secondaryKeywords: string[];
+  supportKeywords: string[];
+  longTailKeywords: string[];
+  semanticKeywords: string[];
+}
+
 export interface EditorialReferencePost {
   title: string;
   slug?: string;
@@ -36,6 +45,7 @@ export interface BlogTopicDecision extends BlogTopicIdeaRationale {
   topic: string;
   keywords: string;
   categoryId: string | null;
+  keywordStrategy?: BlogKeywordStrategy | null;
 }
 
 export interface AppState {
@@ -73,6 +83,7 @@ export interface AppState {
   // Blog Writer State
   blogTopic: string;
   blogKeywords: string;
+  blogKeywordStrategy: BlogKeywordStrategy;
   blogTone: string;
   blogLength: BlogLengthOption;
   blogImageStyle: string;
@@ -112,7 +123,7 @@ export const defaultState: AppState = {
   featureName: '',
   targetAudience: '',
   description: '',
-  brandColor: '#4F46E5',
+  brandColor: '#C7FF41',
   colorPalette: [],
   autoBrandColor: true,
 
@@ -126,14 +137,14 @@ export const defaultState: AppState = {
   subheadline: '',
   cta: '',
   campaignFocus: '',
-  activePreset: 'linkedin',
-  platform: 'LinkedIn',
-  aspectRatio: '1:1',
+  activePreset: VISUAL_CREATOR_DEFAULTS.activePreset,
+  platform: VISUAL_CREATOR_DEFAULTS.platform,
+  aspectRatio: VISUAL_CREATOR_DEFAULTS.aspectRatio,
   variations: 4,
-  campaignType: 'Feature announcement',
-  tone: 'Professional',
-  designStyle: 'Clean SaaS',
-  mode: 'Clean Screenshot Highlight',
+  campaignType: VISUAL_CREATOR_DEFAULTS.campaignType,
+  tone: VISUAL_CREATOR_DEFAULTS.tone,
+  designStyle: VISUAL_CREATOR_DEFAULTS.designStyle,
+  mode: VISUAL_CREATOR_DEFAULTS.mode,
   language: 'BOTH',
   customInstruction: '',
   finalVisuals: [null, null, null, null],
@@ -141,6 +152,13 @@ export const defaultState: AppState = {
   // Blog Writer State
   blogTopic: '',
   blogKeywords: '',
+  blogKeywordStrategy: {
+    primaryKeyword: '',
+    secondaryKeywords: [],
+    supportKeywords: [],
+    longTailKeywords: [],
+    semanticKeywords: [],
+  },
   blogTone: 'Professional & Informative',
   blogLength: DEFAULT_BLOG_LENGTH,
   blogImageStyle: 'Editorial B2B (minimal cover, realistic inline, brandless)',

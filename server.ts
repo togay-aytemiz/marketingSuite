@@ -22,6 +22,7 @@ import {
   generateMarketingCopy,
   generateSocialPosts,
   generateTopicIdeas,
+  generateVisualPromptPlan,
   regenerateBlogTitles,
   type SanityPostReference,
 } from './src/server/openai';
@@ -198,6 +199,7 @@ async function startServer() {
       'enhance-product-details',
       'generate-marketing-copy',
       'generate-copy-ideas',
+      'plan-visual-prompt',
       'generate-topic-ideas',
       'analyze-seo-for-blog',
       'regenerate-blog-title',
@@ -258,6 +260,7 @@ async function startServer() {
             req.body.productName,
             req.body.featureName,
             req.body.description,
+            req.body.platform || req.body.campaignType,
             req.body.campaignType,
             req.body.tone,
             req.body.language
@@ -268,10 +271,37 @@ async function startServer() {
             req.body.productName,
             req.body.featureName,
             req.body.description,
+            req.body.platform || req.body.campaignType,
             req.body.campaignType,
             req.body.tone,
-            req.body.language
+            req.body.language,
+            req.body.ideaAngle
           );
+          break;
+        case 'plan-visual-prompt':
+          result = await generateVisualPromptPlan({
+            productName: req.body.productName,
+            featureName: req.body.featureName,
+            description: req.body.description,
+            headline: req.body.headline,
+            subheadline: req.body.subheadline,
+            cta: req.body.cta,
+            brandColor: req.body.brandColor,
+            platform: req.body.platform,
+            campaignType: req.body.campaignType,
+            aspectRatio: req.body.aspectRatio,
+            tone: req.body.tone,
+            designStyle: req.body.designStyle,
+            mode: req.body.mode,
+            language: req.body.language,
+            customInstruction: req.body.customInstruction,
+            campaignFocus: req.body.campaignFocus,
+            variationIndex: req.body.variationIndex,
+            hasScreenshots: req.body.hasScreenshots,
+            hasReferenceImage: req.body.hasReferenceImage,
+            isMagicEdit: req.body.isMagicEdit,
+            userComment: req.body.userComment,
+          });
           break;
         case 'extract-color-palette':
           result = await extractColorPalette(req.body.imageBase64);
@@ -286,6 +316,7 @@ async function startServer() {
             req.body.subheadline,
             req.body.cta,
             req.body.brandColor,
+            req.body.platform,
             req.body.campaignType,
             req.body.aspectRatio,
             req.body.tone,
@@ -297,7 +328,8 @@ async function startServer() {
             req.body.variationIndex,
             req.body.previousImage,
             req.body.userComment,
-            req.body.referenceImage
+            req.body.referenceImage,
+            req.body.plannedPrompt
           );
           break;
         case 'generate-topic-ideas':
@@ -349,7 +381,8 @@ async function startServer() {
             req.body.language,
             req.body.imageStyle,
             normalizeSanityPostReferences(preferNonEmptyArray(req.body.sanityPosts, editorialSnapshot?.recentPosts)),
-            editorialSnapshot?.sanityCategories || req.body.sanityCategories || []
+            editorialSnapshot?.sanityCategories || req.body.sanityCategories || [],
+            req.body.keywordStrategy || null
           );
           break;
         case 'generate-blog-image':
@@ -407,9 +440,22 @@ async function startServer() {
     });
   }
 
-  app.listen(port, '0.0.0.0', () => {
-    console.log(`Server running on http://localhost:${port}`);
-  });
+  const startListening = (currentPort: number) => {
+    const server = app.listen(currentPort, '0.0.0.0')
+      .on('listening', () => {
+        console.log(`Server running on http://localhost:${currentPort}`);
+      })
+      .on('error', (err: any) => {
+        if (err.code === 'EADDRINUSE') {
+          console.warn(`Port ${currentPort} is in use, trying ${currentPort + 1}...`);
+          startListening(currentPort + 1);
+        } else {
+          console.error(err);
+        }
+      });
+  };
+
+  startListening(port);
 }
 
 startServer();

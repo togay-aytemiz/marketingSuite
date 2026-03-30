@@ -29,6 +29,12 @@ export interface IntegrationEndpointCheck {
   message: string;
 }
 
+export interface StrategyContextSnapshot {
+  available: boolean;
+  promptText: string;
+  sourcePath: string | null;
+}
+
 export const defaultIntegrationStatus: IntegrationStatus = {
   openai: {
     configured: false,
@@ -110,6 +116,26 @@ export async function fetchIntegrationStatus(): Promise<IntegrationStatus> {
 
   const payload = await response.json();
   return normalizeIntegrationStatus(payload);
+}
+
+export async function fetchStrategyContext(): Promise<StrategyContextSnapshot> {
+  const response = await fetch('/api/strategy/context', {
+    headers: {
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(response.statusText || 'Failed to fetch strategy context.');
+  }
+
+  const payload = await response.json();
+  return {
+    available: payload?.available === true,
+    promptText: typeof payload?.promptText === 'string' ? payload.promptText : '',
+    sourcePath: typeof payload?.sourcePath === 'string' ? payload.sourcePath : null,
+  };
 }
 
 async function parseEndpointError(response: Response) {

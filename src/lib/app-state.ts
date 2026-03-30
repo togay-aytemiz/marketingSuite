@@ -1,8 +1,9 @@
 import { defaultState, type AppState } from '../types';
 import { normalizeAppLanguage } from './app-language';
+import { normalizeBlogKeywordStrategy, buildKeywordSummaryText } from './blog-keyword-strategy';
 import { normalizeBlogLength } from './blog-length';
 
-export const APP_STATE_VERSION = 2;
+export const APP_STATE_VERSION = 3;
 
 export function hydrateAppState(saved: string | null): AppState {
   if (!saved) {
@@ -14,6 +15,10 @@ export function hydrateAppState(saved: string | null): AppState {
     const storedVersion = Number(parsed?.stateVersion || 0);
     const normalizedLanguage = normalizeAppLanguage(parsed?.language, defaultState.language);
     const blogLength = normalizeBlogLength(parsed?.blogLength);
+    const blogKeywordStrategy = normalizeBlogKeywordStrategy(
+      parsed?.blogKeywordStrategy || parsed?.blogTopicDecision?.keywordStrategy,
+      parsed?.blogKeywords
+    );
     const language = storedVersion < APP_STATE_VERSION && normalizedLanguage === 'TR'
       ? 'BOTH'
       : normalizedLanguage;
@@ -23,6 +28,8 @@ export function hydrateAppState(saved: string | null): AppState {
       ...parsed,
       language,
       blogLength,
+      blogKeywordStrategy,
+      blogKeywords: buildKeywordSummaryText(blogKeywordStrategy),
       images: [],
       finalVisuals: [null, null, null, null],
       blogContent: null,
@@ -48,8 +55,11 @@ export function buildPersistedAppState(state: AppState) {
     tone: state.tone,
     blogTone: state.blogTone,
     blogLength: state.blogLength,
-    blogKeywords: state.blogKeywords,
+    blogKeywords: buildKeywordSummaryText(state.blogKeywordStrategy || null),
+    blogKeywordStrategy: state.blogKeywordStrategy,
     blogTopic: state.blogTopic,
+    blogTopicDecision: state.blogTopicDecision,
+    blogCategory: state.blogCategory,
     activeModule: state.activeModule,
     aspectRatio: state.aspectRatio,
     mode: state.mode,

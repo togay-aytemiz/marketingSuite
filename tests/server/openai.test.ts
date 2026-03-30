@@ -16,6 +16,7 @@ import {
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
   generateBlogPost,
+  generateVisualPromptPlan,
   regenerateBlogTitles,
   generateTopicIdeas,
   normalizeTopicIdeaCandidate,
@@ -220,6 +221,140 @@ test('builds category distribution using categoryId even when category names dif
 test('builds english internal links under /en/blog', () => {
   assert.equal(buildInternalBlogUrl('sales-automation', 'TR'), '/blog/sales-automation');
   assert.equal(buildInternalBlogUrl('sales-automation', 'EN'), '/en/blog/sales-automation');
+});
+
+test('generateVisualPromptPlan requests a Gemini-ready prompt that keeps the house style intact', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini render prompt for a Quiet Signal Instagram poster.',
+                styleName: 'Quiet Signal',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateVisualPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      headline: 'Stop losing warm leads',
+      subheadline: 'Prioritize conversations instantly.',
+      cta: 'See Qualy',
+      brandColor: '#84CC16',
+      platform: 'Instagram',
+      campaignType: 'Product promotion',
+      aspectRatio: '4:5',
+      tone: 'Professional',
+      designStyle: 'Clean SaaS',
+      mode: 'Social Media Promo',
+      language: 'EN',
+      customInstruction: '',
+      campaignFocus: 'Lead handoff speed',
+      variationIndex: 2,
+      hasScreenshots: true,
+      hasReferenceImage: false,
+      isMagicEdit: false,
+    });
+
+    assert.equal(result?.styleName, 'Quiet Signal');
+    assert.equal(result?.prompt, 'Gemini render prompt for a Quiet Signal Instagram poster.');
+    assert.match(prompts[0] || '', /HOUSE STYLE:\s+Quiet Signal/i);
+    assert.match(prompts[0] || '', /Platform:\s+Instagram/i);
+    assert.match(prompts[0] || '', /Aspect Ratio:\s+4:5/i);
+    assert.match(prompts[0] || '', /Gemini/i);
+    assert.match(prompts[0] || '', /Return JSON only/i);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateVisualPromptPlan forwards campaign intent and custom instructions into the OpenAI planner brief', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini render prompt for a Quiet Signal Instagram poster.',
+                styleName: 'Quiet Signal',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await generateVisualPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      headline: 'See what matters first',
+      subheadline: 'Focus on the highest-intent conversations.',
+      cta: 'Try Qualy',
+      brandColor: '#84CC16',
+      platform: 'Instagram',
+      campaignType: 'Product promotion',
+      aspectRatio: '4:5',
+      tone: 'Professional',
+      designStyle: 'Clean SaaS',
+      mode: 'Social Media Promo',
+      language: 'EN',
+      customInstruction: 'Use an angled composition and avoid any device mockup.',
+      campaignFocus: 'Lead qualification',
+      variationIndex: 0,
+      hasScreenshots: false,
+      hasReferenceImage: false,
+      isMagicEdit: false,
+    });
+
+    assert.match(prompts[0] || '', /CAMPAIGN OBJECTIVE:/);
+    assert.match(prompts[0] || '', /Primary objective: sell the broader product value/i);
+    assert.match(prompts[0] || '', /Do not frame this as a feature announcement/i);
+    assert.match(prompts[0] || '', /NON-NEGOTIABLE CUSTOM INSTRUCTIONS:/);
+    assert.match(prompts[0] || '', /Use an angled composition and avoid any device mockup\./);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
 });
 
 test('analyzeSeoForBlog includes image alt-text coverage in the SEO prompt', async () => {
@@ -891,6 +1026,13 @@ test('normalizes topic idea rationale fields and turkish terminology', () => {
       topic: 'AI lead scoring ile hazir yanitlar nasil kullanilir',
       keywords: 'AI lead scoring, conversion rate, engagement, urun notu, conversion rate',
       categoryId: 'cat-sales',
+      keywordStrategy: {
+        primaryKeyword: 'AI lead scoring',
+        secondaryKeywords: ['conversion rate', 'engagement'],
+        supportKeywords: ['hazir yanitlar', 'urun notu'],
+        longTailKeywords: ['hazir yanitlar nasil kullanilir'],
+        semanticKeywords: ['workflow', 'sales funnel'],
+      },
       reason: 'Lead scoring ve conversion odakli hazir yanit acisi.',
       categoryGap: 'Bu kategoride son donemde daha az urun notu yazisi var.',
       excludedRecentTitles: ['Eski Yazi 1', ' ', 'Eski Yazi 2'],
@@ -904,7 +1046,15 @@ test('normalizes topic idea rationale fields and turkish terminology', () => {
   assert.equal(normalized?.keywords.includes('conversion'), false);
   assert.equal(normalized?.topic.includes('hazır yanıtlar nasıl kullanılır'), true);
   assert.equal(normalized?.keywords.includes('ürün notu'), false);
-  assert.equal(normalized?.keywords, 'yapay zeka müşteri adayı puanlama, dönüşüm oranı, etkileşim');
+  assert.equal(
+    normalized?.keywords,
+    'yapay zeka müşteri adayı puanlama, dönüşüm oranı, etkileşim, hazır yanıtlar, hazır yanıtlar nasıl kullanılır'
+  );
+  assert.equal(normalized?.keywordStrategy?.primaryKeyword, 'yapay zeka müşteri adayı puanlama');
+  assert.deepEqual(normalized?.keywordStrategy?.secondaryKeywords, ['dönüşüm oranı', 'etkileşim']);
+  assert.deepEqual(normalized?.keywordStrategy?.supportKeywords, ['hazır yanıtlar']);
+  assert.deepEqual(normalized?.keywordStrategy?.longTailKeywords, ['hazır yanıtlar nasıl kullanılır']);
+  assert.deepEqual(normalized?.keywordStrategy?.semanticKeywords, ['iş akışı', 'satış hunisi']);
   assert.equal(normalized?.reason.includes('müşteri adayı puanlama'), true);
   assert.deepEqual(normalized?.excludedRecentTitles, ['Eski Yazi 1', 'Eski Yazi 2']);
   assert.equal(normalized?.categoryId, 'cat-sales');
@@ -932,6 +1082,13 @@ test('generateTopicIdeas asks for marketing-manager style keyword sets', async (
                     topic: 'WhatsApp otomasyonunda müşteri adayı önceliklendirme rehberi',
                     keywords: 'whatsapp otomasyonu, müşteri adayı önceliklendirme, satış ekibi iş akışı',
                     categoryId: null,
+                    keywordStrategy: {
+                      primaryKeyword: 'whatsapp otomasyonu',
+                      secondaryKeywords: ['müşteri adayı önceliklendirme', 'satış ekibi iş akışı'],
+                      supportKeywords: ['otomatik yanıt', 'mesaj önceliklendirme'],
+                      longTailKeywords: ['whatsapp otomasyonunda müşteri adayı önceliklendirme nasıl yapılır'],
+                      semanticKeywords: ['yanıt süresi', 'nitelikli talep'],
+                    },
                     reason: 'Qualified talebi büyütür.',
                     categoryGap: 'Bu açı daha az işlendi.',
                     excludedRecentTitles: [],
@@ -958,13 +1115,170 @@ test('generateTopicIdeas asks for marketing-manager style keyword sets', async (
   );
 
   assert.equal(result?.length, 1);
+  assert.equal(result?.[0]?.keywordStrategy?.primaryKeyword, 'whatsapp otomasyonu');
   assert.match(capturedPrompt, /senior SEO content strategist and B2B SaaS marketing manager/i);
   assert.match(capturedPrompt, /qualified organic traffic/i);
-  assert.match(capturedPrompt, /one clear primary keyword and 2-4 supporting keywords/i);
+  assert.match(capturedPrompt, /primary keyword, 3-6 secondary keywords, 5-10 support keywords, 4-8 long-tail keywords, and 8-15 semantic keywords/i);
   assert.match(capturedPrompt, /Avoid generic announcement or vanity phrases/i);
+  assert.match(capturedPrompt, /keywordStrategy:/i);
+  assert.match(capturedPrompt, /primaryKeyword: exactly 1 main keyword/i);
+  assert.match(capturedPrompt, /longTailKeywords: 4-8 longer user-intent phrases/i);
   assert.match(capturedPrompt, /ürün notu/i);
   assert.match(capturedPrompt, /Diversify the batch across multiple categories and intent types/i);
   assert.match(capturedPrompt, /Do not default to Vaka Analizi/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost prompt includes grouped keyword roles when a structured strategy is available', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callIndex += 1;
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    const content = callIndex === 1
+      ? JSON.stringify({
+          title: 'WhatsApp Müşteri Hizmetleri Otomasyonu Rehberi',
+          description: 'Mesajlaşma ekipleri için otomasyon rehberi.',
+          slug: 'whatsapp-musteri-hizmetleri-otomasyonu-rehberi',
+          categoryId: null,
+          content: [
+            'Giriş paragrafı.',
+            '',
+            '## WhatsApp Müşteri Hizmetleri Otomasyonu',
+            '',
+            `${Array.from({ length: 850 }, () => 'otomasyon').join(' ')} detaylı uygulama rehberi.`,
+          ].join('\n'),
+        })
+      : JSON.stringify({
+          coverImagePrompt: 'Editorial messaging operations workflow',
+          coverAltText: 'WhatsApp otomasyon kapak görseli',
+          inlineImages: [],
+        });
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  await generateBlogPost(
+    'Qualy',
+    'WhatsApp Automation',
+    'Support teams',
+    'AI inbox for service teams',
+    'WhatsApp müşteri hizmetleri otomasyonu nasıl kurulur',
+    'whatsapp müşteri hizmetleri otomasyonu, whatsapp otomatik cevap',
+    'Professional & Informative',
+    'Short (800 - 1100 words)',
+    'TR',
+    'Editorial B2B (minimal cover, realistic inline, brandless)',
+    [],
+    [],
+    {
+      primaryKeyword: 'whatsapp müşteri hizmetleri otomasyonu',
+      secondaryKeywords: ['whatsapp otomatik cevap', 'whatsapp otomatik mesaj'],
+      supportKeywords: ['müşteri mesajlarına otomatik cevap', 'whatsapp business otomasyonu'],
+      longTailKeywords: ['whatsapp müşteri hizmetleri otomasyonu nasıl kurulur'],
+      semanticKeywords: ['yanıt süresi', 'mesaj trafiği', 'müşteri memnuniyeti'],
+    }
+  );
+
+  assert.equal(callIndex, 2);
+  assert.match(prompts[0] || '', /STRUCTURED KEYWORD STRATEGY:/i);
+  assert.match(prompts[0] || '', /Primary keyword:\s+whatsapp müşteri hizmetleri otomasyonu/i);
+  assert.match(prompts[0] || '', /Secondary keywords:\s+whatsapp otomatik cevap, whatsapp otomatik mesaj/i);
+  assert.match(prompts[0] || '', /Long-tail keywords:\s+whatsapp müşteri hizmetleri otomasyonu nasıl kurulur/i);
+  assert.match(prompts[0] || '', /Semantic keywords:\s+yanıt süresi, mesaj trafiği, müşteri memnuniyeti/i);
+  assert.match(prompts[0] || '', /Primary keyword must appear naturally in the SEO title, intro, at least one H2, and the meta description/i);
+  assert.match(prompts[0] || '', /Long-tail keywords should be used in H2\/H3 and FAQ-style sections/i);
+
+  global.fetch = originalFetch;
+  process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost localizes generic English product anchor text in Turkish drafts', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, _init?: RequestInit) => {
+    callIndex += 1;
+
+    const content = callIndex === 1
+      ? JSON.stringify({
+          title: 'WhatsApp Otomasyonu Rehberi',
+          description: 'TR açıklama.',
+          slug: 'whatsapp-otomasyonu-rehberi',
+          categoryId: null,
+          content: [
+            'Giriş paragrafı.',
+            '',
+            '## Sonuç ve Çağrı',
+            '',
+            `${Array.from({ length: 850 }, () => 'otomasyon').join(' ')} Daha fazlası için [Our Product](https://www.askqualy.com) sayfamızı ziyaret edin.`,
+          ].join('\n'),
+        })
+      : JSON.stringify({
+          coverImagePrompt: 'Editorial messaging workflow',
+          coverAltText: 'Kapak görseli',
+          inlineImages: [],
+        });
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateBlogPost(
+    'Qualy',
+    'WhatsApp Automation',
+    'Support teams',
+    'AI inbox for service teams',
+    'WhatsApp otomasyonu nasıl kurulur',
+    'whatsapp otomasyonu, otomatik yanıt',
+    'Professional & Informative',
+    'Short (800 - 1100 words)',
+    'TR',
+    'Editorial B2B (minimal cover, realistic inline, brandless)'
+  );
+
+  assert.equal(callIndex, 2);
+  assert.equal(result?.content.includes('[Our Product]'), false);
+  assert.equal(result?.content.includes('[ürün]'), true);
 
   global.fetch = originalFetch;
   process.env.OPENAI_API_KEY = originalOpenAiKey;

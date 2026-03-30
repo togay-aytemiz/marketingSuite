@@ -1,37 +1,42 @@
 import React, { useState, useEffect } from 'react';
 import { AppState } from '../types';
 import { Upload, Image as ImageIcon, X, Settings, Info, ChevronDown, ChevronRight, Wand2, LayoutTemplate, Monitor, Smartphone, Linkedin, Loader2, Sparkles, Link as LinkIcon, PanelLeftClose, PanelLeftOpen, PenTool } from 'lucide-react';
-import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas, type TopicIdeaSuggestion } from '../services/gemini';
+import { buildGeminiRenderPrompt } from '../lib/visual-prompt';
+import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas, planVisualPrompt, type TopicIdeaSuggestion, type VisualPromptPlanResult } from '../services/gemini';
 import { fetchSanityCategories, fetchSanityPosts } from '../services/sanity';
-import type { IntegrationStatus } from '../services/integrations';
+import { fetchStrategyContext, type IntegrationStatus } from '../services/integrations';
 import {
   buildInternalLinkAudit,
   buildEditorialPostUrl,
   buildEditorialResearchSummaryPosts,
   extractValidatedUsedInternalBlogLinks,
 } from '../lib/editorial-context';
+import {
+  buildKeywordSummaryText,
+  formatKeywordStrategyFieldValue,
+  keywordStrategiesEqual,
+  normalizeBlogKeywordStrategy,
+  parseKeywordInput,
+} from '../lib/blog-keyword-strategy';
 import { BLOG_LENGTH_OPTIONS } from '../lib/blog-length';
+import { VISUAL_CREATOR_PRESETS } from '../lib/visual-house-style';
 
-const PRESETS = [
-  {
-    id: 'linkedin',
-    name: 'LinkedIn Promo',
-    icon: <Linkedin className="w-4 h-4" />,
-    settings: { aspectRatio: '1:1', mode: 'Clean Screenshot Highlight', designStyle: 'Clean SaaS', tone: 'Professional', campaignType: 'Feature announcement' }
-  },
-  {
-    id: 'ig_story',
-    name: 'Instagram Story',
-    icon: <Smartphone className="w-4 h-4" />,
-    settings: { aspectRatio: '4:5', mode: 'Social Media Promo', designStyle: 'Gradient startup', tone: 'Playful', campaignType: 'Product promotion' }
-  },
-  {
-    id: 'web_hero',
-    name: 'Website Hero',
-    icon: <Monitor className="w-4 h-4" />,
-    settings: { aspectRatio: '16:9', mode: 'Device Mockup', designStyle: 'Apple-style minimal', tone: 'Premium', campaignType: 'Landing page visual' }
-  }
-];
+const KEYWORD_FIELD_LIMITS = {
+  primaryKeyword: 1,
+  secondaryKeywords: 6,
+  supportKeywords: 10,
+  longTailKeywords: 8,
+  semanticKeywords: 15,
+} as const;
+
+const PRESETS = VISUAL_CREATOR_PRESETS.map((preset) => ({
+  ...preset,
+  icon: preset.id === 'linkedin'
+    ? <Linkedin className="w-4 h-4" />
+    : preset.id === 'instagram_feed'
+      ? <Smartphone className="w-4 h-4" />
+      : <Monitor className="w-4 h-4" />,
+}));
 
 interface SidebarProps {
   state: AppState;
@@ -48,12 +53,18 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   const [isPromptModalOpen, setPromptModalOpen] = useState(false);
   const [isGeneratingCopy, setIsGeneratingCopy] = useState(false);
   const [copyIdeas, setCopyIdeas] = useState<{headlines: string[], subheadlines: string[], ctas: string[]} | null>(null);
+  const [isAiIdeasPromptOpen, setIsAiIdeasPromptOpen] = useState(false);
+  const [aiIdeasDirection, setAiIdeasDirection] = useState('');
+  const [strategyContextPromptText, setStrategyContextPromptText] = useState('');
+  const [visualPromptPlanResult, setVisualPromptPlanResult] = useState<VisualPromptPlanResult | null>(null);
+  const [isLoadingVisualPromptPlan, setIsLoadingVisualPromptPlan] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
     presets: false,
     assets: true,
     copy: false,
     design: false,
     blogContent: true,
+    keywordStrategy: true,
     blogPreferences: false,
     editorialContext: true,
   });
@@ -70,6 +81,103 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     }
   }, [isGenerating]);
 
+  useEffect(() => {
+    if (!isPromptModalOpen) {
+      return;
+    }
+
+    let cancelled = false;
+    setIsLoadingVisualPromptPlan(openAiConfigured);
+    setVisualPromptPlanResult(null);
+
+    void Promise.all([
+      fetchStrategyContext().catch((error) => {
+        console.error('Failed to load strategy context for prompt preview:', error);
+        return null;
+      }),
+      openAiConfigured
+        ? planVisualPrompt({
+            productName: state.productName,
+            featureName: state.featureName,
+            description: state.description,
+            headline: state.headline,
+            subheadline: state.subheadline,
+            cta: state.cta,
+            brandColor: state.brandColor,
+            platform: state.platform,
+            campaignType: state.campaignType,
+            aspectRatio: state.aspectRatio,
+            tone: state.tone,
+            designStyle: state.designStyle,
+            mode: state.mode,
+            language: state.language,
+            customInstruction: state.customInstruction,
+            campaignFocus: state.campaignFocus,
+            variationIndex: 0,
+            hasScreenshots: state.images.length > 0,
+            hasReferenceImage: Boolean(state.referenceImage),
+            isMagicEdit: false,
+          })
+        : Promise.resolve(null),
+    ])
+      .then(([strategySnapshot, promptPlan]) => {
+        if (cancelled) {
+          return;
+        }
+
+        setStrategyContextPromptText(strategySnapshot?.available ? strategySnapshot.promptText : '');
+        setVisualPromptPlanResult(promptPlan);
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setIsLoadingVisualPromptPlan(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    isPromptModalOpen,
+    openAiConfigured,
+    state.productName,
+    state.featureName,
+    state.description,
+    state.headline,
+    state.subheadline,
+    state.cta,
+    state.brandColor,
+    state.platform,
+    state.campaignType,
+    state.aspectRatio,
+    state.tone,
+    state.designStyle,
+    state.mode,
+    state.language,
+    state.customInstruction,
+    state.campaignFocus,
+    state.images.length,
+    state.referenceImage,
+  ]);
+
+  const geminiRenderPromptPreview = visualPromptPlanResult
+    ? buildGeminiRenderPrompt({
+        plannedPrompt: visualPromptPlanResult.prompt,
+        headline: state.headline,
+        subheadline: state.subheadline,
+        cta: state.cta,
+        language: state.language,
+        images: state.images,
+        featureName: state.featureName,
+        brandName: state.productName,
+        hasBrandReferences: true,
+        campaignType: state.campaignType,
+        campaignFocus: state.campaignFocus,
+        customInstruction: state.customInstruction,
+        referenceImage: state.referenceImage,
+      })
+    : null;
+
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections(prev => ({ ...prev, [section]: !prev[section] }));
   };
@@ -78,23 +186,38 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setState(prev => ({ ...prev, ...(preset.settings as Partial<AppState>), activePreset: preset.id }));
   };
 
-  const isProductDetailsEmpty = !state.productName.trim() && !state.featureName.trim() && !state.description.trim();
+  const handleOpenAiIdeas = () => {
+    if (!openAiConfigured) return;
+    setExpandedSections(prev => ({ ...prev, copy: true }));
+    setIsAiIdeasPromptOpen(true);
+  };
 
   const handleGenerateCopy = async () => {
-    if (isProductDetailsEmpty) return;
+    if (!openAiConfigured) return;
     setIsGeneratingCopy(true);
-    const ideas = await generateCopyIdeas(
-      state.productName,
-      state.featureName,
-      state.description,
-      state.campaignType,
-      state.tone,
-      state.language
-    );
-    if (ideas) {
-      setCopyIdeas(ideas);
+    try {
+      const ideas = await generateCopyIdeas(
+        state.productName,
+        state.featureName,
+        state.description,
+        state.platform,
+        state.campaignType,
+        state.tone,
+        state.language,
+        aiIdeasDirection.trim()
+      );
+      if (ideas) {
+        setCopyIdeas(ideas);
+        setState(prev => ({
+          ...prev,
+          headline: ideas.headlines[0] || prev.headline,
+          subheadline: ideas.subheadlines[0] || prev.subheadline,
+          cta: ideas.ctas[0] || prev.cta,
+        }));
+      }
+    } finally {
+      setIsGeneratingCopy(false);
     }
-    setIsGeneratingCopy(false);
   };
 
   const applyCopyIdea = (type: 'headline' | 'subheadline' | 'cta', text: string) => {
@@ -160,12 +283,62 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setState((prev) => {
       const nextState = { ...prev, [name]: value };
 
+      if (name === 'blogKeywords') {
+        const nextStrategy = normalizeBlogKeywordStrategy(null, value);
+        nextState.blogKeywordStrategy = nextStrategy;
+        nextState.blogKeywords = buildKeywordSummaryText(nextStrategy);
+      }
+
       if ((name === 'blogTopic' || name === 'blogKeywords') && prev.blogTopicDecision) {
         const nextTopic = name === 'blogTopic' ? value : prev.blogTopic;
-        const nextKeywords = name === 'blogKeywords' ? value : prev.blogKeywords;
+        const nextKeywords = name === 'blogKeywords'
+          ? buildKeywordSummaryText(nextState.blogKeywordStrategy)
+          : buildKeywordSummaryText(nextState.blogKeywordStrategy);
+        const decisionStrategy = normalizeBlogKeywordStrategy(
+          prev.blogTopicDecision.keywordStrategy,
+          prev.blogTopicDecision.keywords
+        );
         const matchesDecision =
           normalizeWhitespace(nextTopic).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.topic).toLowerCase() &&
-          normalizeWhitespace(nextKeywords).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.keywords).toLowerCase();
+          normalizeWhitespace(nextKeywords).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.keywords).toLowerCase() &&
+          keywordStrategiesEqual(nextState.blogKeywordStrategy, decisionStrategy);
+
+        if (!matchesDecision) {
+          nextState.blogTopicDecision = null;
+        }
+      }
+
+      return nextState;
+    });
+  };
+
+  const handleKeywordStrategyChange = (
+    field: keyof AppState['blogKeywordStrategy'],
+    value: string
+  ) => {
+    setState((prev) => {
+      const nextStrategy = normalizeBlogKeywordStrategy({
+        ...prev.blogKeywordStrategy,
+        [field]: field === 'primaryKeyword'
+          ? value
+          : parseKeywordInput(value, KEYWORD_FIELD_LIMITS[field]),
+      });
+      const nextSummary = buildKeywordSummaryText(nextStrategy);
+      const nextState = {
+        ...prev,
+        blogKeywordStrategy: nextStrategy,
+        blogKeywords: nextSummary,
+      };
+
+      if (prev.blogTopicDecision) {
+        const decisionStrategy = normalizeBlogKeywordStrategy(
+          prev.blogTopicDecision.keywordStrategy,
+          prev.blogTopicDecision.keywords
+        );
+        const matchesDecision =
+          normalizeWhitespace(prev.blogTopic).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.topic).toLowerCase()
+          && normalizeWhitespace(nextSummary).toLowerCase() === normalizeWhitespace(prev.blogTopicDecision.keywords).toLowerCase()
+          && keywordStrategiesEqual(nextStrategy, decisionStrategy);
 
         if (!matchesDecision) {
           nextState.blogTopicDecision = null;
@@ -308,16 +481,20 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       ? sanityCategoryOptions.find((category) => category.id === categoryId) || null
       : null;
     const selectedIdea = topicIdeas.find((idea) => idea.topic === topic && idea.keywords === keywords && idea.categoryId === categoryId) || null;
+    const keywordStrategy = normalizeBlogKeywordStrategy(selectedIdea?.keywordStrategy, selectedIdea?.keywords || keywords);
+    const keywordSummary = buildKeywordSummaryText(keywordStrategy);
 
     setState(prev => ({
       ...prev,
       blogTopic: topic,
-      blogKeywords: keywords,
+      blogKeywords: keywordSummary,
+      blogKeywordStrategy: keywordStrategy,
       blogTopicDecision: selectedIdea
         ? {
             topic: selectedIdea.topic,
-            keywords: selectedIdea.keywords,
+            keywords: keywordSummary,
             categoryId: selectedIdea.categoryId,
+            keywordStrategy,
             reason: selectedIdea.reason,
             categoryGap: selectedIdea.categoryGap,
             excludedRecentTitles: selectedIdea.excludedRecentTitles,
@@ -485,6 +662,13 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                               }`}>
                                 Keywords: {idea.keywords}
                               </div>
+                              {idea.keywordStrategy?.primaryKeyword && (
+                                <div className={`text-[11px] mt-1 ${
+                                  isSelected ? 'text-indigo-700' : 'text-zinc-600'
+                                }`}>
+                                  Primary: {idea.keywordStrategy.primaryKeyword}
+                                </div>
+                              )}
                               {idea.categoryId && (
                                 <div className={`text-[11px] mt-1 ${
                                   isSelected ? 'text-indigo-700' : 'text-indigo-600'
@@ -523,16 +707,83 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                   )}
                 </div>
 
-                <div className="space-y-1.5">
-                  <label className="block text-xs font-medium text-zinc-600">Additional Keywords (Optional)</label>
-                  <input
-                    type="text"
-                    name="blogKeywords"
-                    value={state.blogKeywords}
-                    onChange={handleChange}
-                    className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors"
-                    placeholder="İstersen boş bırak; sistem anahtar kelimeleri kendisi çıkarır"
-                  />
+                <div className="space-y-3">
+                  <button
+                    onClick={() => toggleSection('keywordStrategy')}
+                    className="flex items-center justify-between w-full text-left group"
+                  >
+                    <h3 className="text-xs font-semibold text-zinc-900 uppercase tracking-widest group-hover:text-zinc-600 transition-colors">Keyword Strategy</h3>
+                    <div className="flex items-center gap-2">
+                      <span className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600">
+                        5 buckets
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-zinc-400 transition-transform duration-200 ${expandedSections.keywordStrategy ? 'rotate-180' : ''}`} />
+                    </div>
+                  </button>
+
+                  {expandedSections.keywordStrategy && (
+                    <div className="space-y-3 rounded-lg border border-zinc-200 bg-zinc-50/60 p-3">
+                      <div className="space-y-1.5">
+                        <label className="block text-[11px] font-medium text-zinc-600">Primary Keyword</label>
+                        <input
+                          type="text"
+                          value={state.blogKeywordStrategy.primaryKeyword}
+                          onChange={(event) => handleKeywordStrategyChange('primaryKeyword', event.target.value)}
+                          className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-sm transition-colors bg-white"
+                          placeholder="Örn. whatsapp müşteri hizmetleri otomasyonu"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-3">
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-medium text-zinc-600">Secondary Keywords</label>
+                          <textarea
+                            value={formatKeywordStrategyFieldValue(state.blogKeywordStrategy.secondaryKeywords)}
+                            onChange={(event) => handleKeywordStrategyChange('secondaryKeywords', event.target.value)}
+                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none h-20 bg-white"
+                            placeholder={'Örn.\nwhatsapp otomatik cevap\nwhatsapp otomatik mesaj'}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-medium text-zinc-600">Support Keywords</label>
+                          <textarea
+                            value={formatKeywordStrategyFieldValue(state.blogKeywordStrategy.supportKeywords)}
+                            onChange={(event) => handleKeywordStrategyChange('supportKeywords', event.target.value)}
+                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none h-20 bg-white"
+                            placeholder={'Örn.\nmüşteri mesajlarına otomatik cevap\nwhatsapp business otomasyonu'}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-medium text-zinc-600">Long-tail Keywords</label>
+                          <textarea
+                            value={formatKeywordStrategyFieldValue(state.blogKeywordStrategy.longTailKeywords)}
+                            onChange={(event) => handleKeywordStrategyChange('longTailKeywords', event.target.value)}
+                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none h-20 bg-white"
+                            placeholder={'Örn.\nwhatsapp müşteri hizmetleri otomasyonu nasıl kurulur'}
+                          />
+                        </div>
+
+                        <div className="space-y-1.5">
+                          <label className="block text-[11px] font-medium text-zinc-600">Semantic Keywords</label>
+                          <textarea
+                            value={formatKeywordStrategyFieldValue(state.blogKeywordStrategy.semanticKeywords)}
+                            onChange={(event) => handleKeywordStrategyChange('semanticKeywords', event.target.value)}
+                            className="w-full px-3 py-2 border border-zinc-200 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none h-20 bg-white"
+                            placeholder={'Örn.\nyanıt süresi\nmesaj trafiği\nmüşteri memnuniyeti'}
+                          />
+                        </div>
+                      </div>
+
+                      <div className="rounded-md border border-zinc-200 bg-white px-3 py-2">
+                        <div className="text-[11px] font-medium text-zinc-700">Keyword Summary</div>
+                        <div className="mt-1 text-[11px] leading-5 text-zinc-500">
+                          {state.blogKeywords || 'Henüz keyword strategy girilmedi.'}
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </div>
                 {!openAiConfigured && (
                   <p className="text-[10px] text-amber-600 leading-relaxed">Blog brainstorming ve writer generate islemleri icin <code>OPENAI_API_KEY</code> gerekli.</p>
@@ -597,6 +848,23 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                         <div className="text-xs font-medium text-zinc-900">{state.blogTopicDecision.topic}</div>
                         <div className="mt-1 text-zinc-500">Keywords: {state.blogTopicDecision.keywords}</div>
                       </div>
+                      {state.blogTopicDecision.keywordStrategy && (
+                        <div className="rounded-md border border-zinc-200 bg-white px-2.5 py-2 space-y-1">
+                          <div><span className="font-semibold text-zinc-800">Primary:</span> {state.blogTopicDecision.keywordStrategy.primaryKeyword || '—'}</div>
+                          {state.blogTopicDecision.keywordStrategy.secondaryKeywords.length > 0 && (
+                            <div><span className="font-semibold text-zinc-800">Secondary:</span> {state.blogTopicDecision.keywordStrategy.secondaryKeywords.join(', ')}</div>
+                          )}
+                          {state.blogTopicDecision.keywordStrategy.supportKeywords.length > 0 && (
+                            <div><span className="font-semibold text-zinc-800">Support:</span> {state.blogTopicDecision.keywordStrategy.supportKeywords.join(', ')}</div>
+                          )}
+                          {state.blogTopicDecision.keywordStrategy.longTailKeywords.length > 0 && (
+                            <div><span className="font-semibold text-zinc-800">Long-tail:</span> {state.blogTopicDecision.keywordStrategy.longTailKeywords.join(', ')}</div>
+                          )}
+                          {state.blogTopicDecision.keywordStrategy.semanticKeywords.length > 0 && (
+                            <div><span className="font-semibold text-zinc-800">Semantic:</span> {state.blogTopicDecision.keywordStrategy.semanticKeywords.join(', ')}</div>
+                          )}
+                        </div>
+                      )}
                       {state.blogTopicDecision.reason && (
                         <div><span className="font-semibold text-zinc-800">Why now:</span> {state.blogTopicDecision.reason}</div>
                       )}
@@ -927,14 +1195,12 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
               {expandedSections.copy ? <ChevronDown className="w-4 h-4 text-zinc-400" /> : <ChevronRight className="w-4 h-4 text-zinc-400" />}
             </button>
             <button
-              onClick={handleGenerateCopy}
-              disabled={isGeneratingCopy || isProductDetailsEmpty || !openAiConfigured}
+              onClick={handleOpenAiIdeas}
+              disabled={isGeneratingCopy || !openAiConfigured}
               title={
                 !openAiConfigured
                   ? 'Add OPENAI_API_KEY in .env.local to enable AI'
-                  : isProductDetailsEmpty
-                    ? 'Please enter Product Details in Settings first'
-                    : 'Generate AI ideas'
+                  : 'Open AI copy ideas and optionally tell it what to emphasize'
               }
               className="flex items-center gap-1 text-[10px] font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 px-2 py-1 rounded-full transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
@@ -945,6 +1211,42 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
           
           {expandedSections.copy && (
             <div className="space-y-3 pt-1">
+              {isAiIdeasPromptOpen && (
+                <div className="p-3 bg-indigo-50/40 border border-indigo-100 rounded-lg space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div>
+                      <h4 className="text-[10px] font-semibold text-indigo-900 uppercase tracking-wider">AI Ideas Brief</h4>
+                      <p className="text-[11px] text-indigo-700 mt-1">What should AI emphasize?</p>
+                    </div>
+                    <button
+                      onClick={() => setIsAiIdeasPromptOpen(false)}
+                      className="text-indigo-400 hover:text-indigo-600"
+                      title="Close AI ideas brief"
+                    >
+                      <X className="w-3 h-3" />
+                    </button>
+                  </div>
+                  <textarea
+                    value={aiIdeasDirection}
+                    onChange={(event) => setAiIdeasDirection(event.target.value)}
+                    rows={3}
+                    placeholder="e.g. Lead quality, ROI, fewer missed conversations, trust, speed..."
+                    className="w-full px-3 py-2 border border-indigo-100 rounded-lg shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors resize-none bg-white"
+                  />
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-[10px] text-indigo-700/80">Leave blank to let AI decide from the PRD/ROADMAP context and current inputs.</p>
+                    <button
+                      onClick={handleGenerateCopy}
+                      disabled={isGeneratingCopy || !openAiConfigured}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-indigo-600 text-white text-[10px] font-medium hover:bg-indigo-700 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                    >
+                      {isGeneratingCopy ? <Loader2 className="w-3 h-3 animate-spin" /> : <Sparkles className="w-3 h-3" />}
+                      Generate Ideas
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {copyIdeas && (
                 <div className="p-3 bg-indigo-50/50 border border-indigo-100 rounded-lg space-y-3 mb-4">
                   <div className="flex items-center justify-between">
@@ -1071,6 +1373,17 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
           
           {expandedSections.design && (
             <div className="space-y-3 pt-1">
+              <div className="rounded-xl border border-zinc-200 bg-zinc-50/80 px-3 py-3">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-zinc-500">House Style</p>
+                <p className="mt-2 text-sm font-semibold text-zinc-900">Quiet Signal</p>
+                <p className="mt-1 text-[11px] leading-5 text-zinc-600">
+                  Quiet Signal = calm but scroll-stopping. One big focal idea, generous empty space, one accent color, and only the minimum copy needed to make someone pause and click.
+                </p>
+                <p className="mt-2 text-[11px] leading-5 text-zinc-500">
+                  Qualy black and white wordmarks are added automatically during generation, and the model should use the higher-contrast version for the background.
+                </p>
+              </div>
+
               <div className="space-y-1.5">
                 <label className="block text-[11px] font-medium text-zinc-500">Platform</label>
                 <select
@@ -1173,6 +1486,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                   className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
                   style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
                 >
+                  <option>Quiet Signal Editorial</option>
                   <option>Clean SaaS</option>
                   <option>Gradient startup</option>
                   <option>Dark mode</option>
@@ -1191,7 +1505,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
       <div className="p-4 border-t border-zinc-100 bg-white flex gap-2">
         <button
           onClick={onGenerate}
-          disabled={isGenerating || !geminiConfigured}
+          disabled={isGenerating || !geminiConfigured || !openAiConfigured}
           className="flex-1 flex items-center justify-center px-4 py-3 border border-transparent rounded-xl shadow-sm text-sm font-semibold text-white bg-zinc-900 hover:bg-zinc-800 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-zinc-900 disabled:opacity-50 disabled:cursor-not-allowed transition-all"
         >
           {isGenerating ? (
@@ -1212,10 +1526,15 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
         <button 
           onClick={() => setPromptModalOpen(true)}
           className="p-3 text-zinc-500 hover:text-zinc-900 hover:bg-zinc-100 border border-zinc-200 rounded-xl transition-colors shadow-sm flex items-center justify-center"
-          title="View Prompt"
+          title="View Prompt Pipeline"
         >
           <Info className="w-5 h-5" />
         </button>
+      </div>
+      <div className="px-4 pb-4 bg-white">
+        <div className="rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-[11px] leading-5 text-zinc-600">
+          OpenAI plans the final visual prompt and copy direction. Gemini renders the image and extracts palettes.
+        </div>
       </div>
 
       {isPromptModalOpen && (
@@ -1227,8 +1546,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                   <Info className="w-5 h-5" />
                 </div>
                 <div>
-                  <h2 className="text-lg font-semibold text-zinc-900">Dynamic Prompt Preview</h2>
-                  <p className="text-sm text-zinc-500">This is the exact prompt that will be sent to the LLM.</p>
+                  <h2 className="text-lg font-semibold text-zinc-900">Prompt Pipeline Preview</h2>
+                  <p className="text-sm text-zinc-500">Inspect the exact OpenAI planning brief and the Gemini render prompt produced from the current planner output.</p>
                 </div>
               </div>
               <button 
@@ -1239,30 +1558,78 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
               </button>
             </div>
             <div className="p-6 overflow-y-auto bg-zinc-50">
-              <pre className="whitespace-pre-wrap font-mono text-xs text-zinc-700 bg-white p-4 rounded-xl border border-zinc-200 shadow-sm">
-                {buildPrompt(
-                  state.images,
-                  state.productName,
-                  state.featureName,
-                  state.description,
-                  state.headline,
-                  state.subheadline,
-                  state.cta,
-                  state.brandColor,
-                  state.campaignType,
-                  state.aspectRatio,
-                  state.tone,
-                  state.designStyle,
-                  state.mode,
-                  state.language,
-                  state.customInstruction,
-                  state.campaignFocus,
-                  0, // variationIndex
-                  undefined,
-                  undefined,
-                  state.referenceImage
-                )}
-              </pre>
+              <div className="space-y-4">
+                <section className="space-y-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-900">OpenAI Planner Brief</h3>
+                    <p className="text-xs text-zinc-500">The exact input prompt sent to OpenAI.</p>
+                  </div>
+                  <pre className="whitespace-pre-wrap font-mono text-xs text-zinc-700 bg-white p-4 rounded-xl border border-zinc-200 shadow-sm">
+                    {buildPrompt(
+                      state.images,
+                      state.productName,
+                      state.featureName,
+                      state.description,
+                      state.headline,
+                      state.subheadline,
+                      state.cta,
+                      state.brandColor,
+                      state.platform,
+                      state.campaignType,
+                      state.aspectRatio,
+                      state.tone,
+                      state.designStyle,
+                      state.mode,
+                      state.language,
+                      state.customInstruction,
+                      state.campaignFocus,
+                      0,
+                      undefined,
+                      undefined,
+                      state.referenceImage,
+                      strategyContextPromptText
+                    )}
+                  </pre>
+                </section>
+
+                <section className="space-y-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-900">OpenAI Planned Prompt</h3>
+                    <p className="text-xs text-zinc-500">The current planner output that Gemini will inherit as its creative direction.</p>
+                  </div>
+                  <div className="whitespace-pre-wrap font-mono text-xs text-zinc-700 bg-white p-4 rounded-xl border border-zinc-200 shadow-sm min-h-24">
+                    {isLoadingVisualPromptPlan ? (
+                      <span className="inline-flex items-center gap-2 text-zinc-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Generating live OpenAI prompt preview...
+                      </span>
+                    ) : visualPromptPlanResult?.prompt ? (
+                      visualPromptPlanResult.prompt
+                    ) : (
+                      'OpenAI planner output is unavailable. Configure OpenAI to preview the downstream Gemini prompt.'
+                    )}
+                  </div>
+                </section>
+
+                <section className="space-y-2">
+                  <div>
+                    <h3 className="text-sm font-semibold text-zinc-900">Gemini Render Prompt</h3>
+                    <p className="text-xs text-zinc-500">The final Gemini prompt, with the current headline, subheadline, CTA, screenshots, and references applied.</p>
+                  </div>
+                  <div className="whitespace-pre-wrap font-mono text-xs text-zinc-700 bg-white p-4 rounded-xl border border-zinc-200 shadow-sm min-h-24">
+                    {isLoadingVisualPromptPlan ? (
+                      <span className="inline-flex items-center gap-2 text-zinc-500">
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                        Building Gemini render prompt...
+                      </span>
+                    ) : geminiRenderPromptPreview ? (
+                      geminiRenderPromptPreview
+                    ) : (
+                      'Gemini render prompt preview will appear here after OpenAI produces the planned prompt.'
+                    )}
+                  </div>
+                </section>
+              </div>
             </div>
             <div className="p-6 border-t border-zinc-100 bg-white flex justify-end">
               <button

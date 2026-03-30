@@ -1,6 +1,6 @@
 # Marketing Suite
 
-Local-first content and visual generation tool. This app now runs with its own local Express backend, so Gemini and Sanity credentials stay on your machine and are never exposed to the browser bundle.
+Local-first content and visual generation tool. This app now runs with its own local Express backend, so OpenAI, Gemini, and Sanity credentials stay on your machine and are never exposed to the browser bundle.
 
 ## Prerequisites
 
@@ -23,24 +23,36 @@ The app runs on [http://localhost:3000](http://localhost:3000) by default.
 
 - The UI opens normally
 - Product context, manual editing, prompt preview, and local state persistence work
-- AI buttons stay visible but are disabled until `GEMINI_API_KEY` exists
+- Visual Creator generation stays disabled until both `OPENAI_API_KEY` and `GEMINI_API_KEY` exist
+- Blog Writer generation stays disabled until `OPENAI_API_KEY` exists
 - Sanity fetch/publish stays disabled until Sanity env vars exist
 
 ## Required Env Vars
+
+### OpenAI
+
+- `OPENAI_API_KEY`
+
+Without this key, text and planning actions are disabled:
+
+- Visual Creator copy generation
+- Visual Creator prompt planning
+- topic brainstorming
+- blog writing
+- SEO analysis
+- internal-link editing
+- social post generation
 
 ### Gemini
 
 - `GEMINI_API_KEY`
 
-Without this key, all AI actions are disabled:
+Without this key, image and palette actions are disabled:
 
-- visual generation
-- copy ideas
-- topic brainstorming
-- blog writing
-- SEO analysis
-- image generation
-- AI editing
+- Visual Creator final image rendering
+- Visual Creator magic edit image rendering
+- color palette extraction
+- blog image generation
 
 ### Sanity
 
