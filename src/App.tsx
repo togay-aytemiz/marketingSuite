@@ -7,6 +7,7 @@ import { IntegrationSettingsModal } from './components/SanitySettingsModal';
 import { AppState } from './types';
 import { buildPersistedAppState, hydrateAppState } from './lib/app-state';
 import { extractColorPalette, generateMarketingCopy, generateFinalVisual, planVisualPrompt } from './services/gemini';
+import { fitGeneratedVisualToAspectRatio } from './lib/visual-aspect-ratio';
 import { Settings, PenTool, Image as ImageIcon, Database } from 'lucide-react';
 import {
   checkIntegrationEndpoints,
@@ -124,7 +125,7 @@ function MainApp() {
     }
 
     // If text is missing, generate it
-    if (!state.headline || !state.subheadline || !state.cta) {
+    if (!state.headline || !state.subheadline || (state.includeCta && !state.cta)) {
       const copy = await generateMarketingCopy(
         state.productName,
         state.featureName,
@@ -132,22 +133,25 @@ function MainApp() {
         state.platform,
         state.campaignType,
         state.tone,
-        state.language
+        state.language,
+        state.includeCta
       );
       
       if (copy) {
         newHeadline = state.headline || copy.headline;
         newSubheadline = state.subheadline || copy.subheadline;
-        newCta = state.cta || copy.cta;
+        newCta = state.includeCta ? (state.cta || copy.cta) : state.cta;
         
         setState(prev => ({
           ...prev,
           headline: newHeadline,
           subheadline: newSubheadline,
-          cta: newCta,
+          cta: prev.includeCta ? newCta : prev.cta,
         }));
       }
     }
+
+    const effectiveCta = state.includeCta ? newCta : '';
 
     // Generate final visuals sequentially
     for (let i = 0; i < 4; i++) {
@@ -157,13 +161,15 @@ function MainApp() {
         description: state.description,
         headline: newHeadline,
         subheadline: newSubheadline,
-        cta: newCta,
+        cta: effectiveCta,
+        includeCta: state.includeCta,
         brandColor: newBrandColor,
         platform: state.platform,
         campaignType: state.campaignType,
         aspectRatio: state.aspectRatio,
         tone: state.tone,
         designStyle: state.designStyle,
+        theme: state.theme,
         mode: state.mode,
         language: state.language,
         customInstruction: state.customInstruction,
@@ -181,13 +187,15 @@ function MainApp() {
         state.description,
         newHeadline,
         newSubheadline,
-        newCta,
+        effectiveCta,
+        state.includeCta,
         newBrandColor,
         state.platform,
         state.campaignType,
         state.aspectRatio,
         state.tone,
         state.designStyle,
+        state.theme,
         state.mode,
         state.language,
         state.customInstruction,
@@ -198,10 +206,11 @@ function MainApp() {
         state.referenceImage,
         plannedPrompt?.prompt
       );
+      const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, state.aspectRatio);
       
       setState(prev => {
         const newVisuals = [...prev.finalVisuals];
-        newVisuals[i] = visual;
+        newVisuals[i] = fittedVisual || visual;
         return { ...prev, finalVisuals: newVisuals };
       });
       
@@ -227,7 +236,7 @@ function MainApp() {
     let newCta = state.cta;
     let newBrandColor = state.brandColor;
 
-    if (!newHeadline || !newSubheadline || !newCta) {
+    if (!newHeadline || !newSubheadline || (state.includeCta && !newCta)) {
       const copy = await generateMarketingCopy(
         state.productName, 
         state.featureName, 
@@ -235,12 +244,13 @@ function MainApp() {
         state.platform,
         state.campaignType,
         state.tone,
-        state.language
+        state.language,
+        state.includeCta
       );
       if (copy) {
         newHeadline = newHeadline || copy.headline;
         newSubheadline = newSubheadline || copy.subheadline;
-        newCta = newCta || copy.cta;
+        newCta = state.includeCta ? (newCta || copy.cta) : newCta;
       }
     }
 
@@ -254,6 +264,7 @@ function MainApp() {
 
     // Use original images directly
     const currentImagesToUse = state.images.filter(Boolean);
+    const effectiveCta = state.includeCta ? newCta : '';
 
     const plannedPrompt = await planVisualPrompt({
       productName: state.productName,
@@ -261,13 +272,15 @@ function MainApp() {
       description: state.description,
       headline: newHeadline,
       subheadline: newSubheadline,
-      cta: newCta,
+      cta: effectiveCta,
+      includeCta: state.includeCta,
       brandColor: newBrandColor,
       platform: state.platform,
       campaignType: state.campaignType,
       aspectRatio: state.aspectRatio,
       tone: state.tone,
       designStyle: state.designStyle,
+      theme: state.theme,
       mode: state.mode,
       language: state.language,
       customInstruction: state.customInstruction,
@@ -286,13 +299,15 @@ function MainApp() {
       state.description,
       newHeadline,
       newSubheadline,
-      newCta,
+      effectiveCta,
+      state.includeCta,
       newBrandColor,
       state.platform,
       state.campaignType,
       state.aspectRatio,
       state.tone,
       state.designStyle,
+      state.theme,
       state.mode,
       state.language,
       state.customInstruction,
@@ -303,10 +318,11 @@ function MainApp() {
       state.referenceImage,
       plannedPrompt?.prompt
     );
+    const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, state.aspectRatio);
 
     setState(prev => {
       const newVisuals = [...prev.finalVisuals];
-      newVisuals[index] = visual;
+      newVisuals[index] = fittedVisual || visual;
       return { ...prev, finalVisuals: newVisuals };
     });
 

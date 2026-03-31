@@ -7,6 +7,7 @@ import {
   buildGeminiRenderPrompt,
   buildPrompt as buildSharedVisualPrompt,
 } from "../lib/visual-prompt";
+import type { VisualTheme } from "../lib/visual-house-style";
 import {
   getCoverImageHouseStyleBullets,
   getCoverImageHouseStyleText,
@@ -17,6 +18,7 @@ import {
   buildVisualReferenceParts,
   loadVisualBrandReferenceImages,
 } from "./visual-image-parts";
+import { getGeminiImageConfigAspectRatio } from "../lib/visual-aspect-ratio";
 
 export interface SanityPostReference {
   title: string;
@@ -682,12 +684,14 @@ export const generateFinalVisual = async (
   headline: string,
   subheadline: string,
   cta: string,
+  includeCta: boolean,
   brandColor: string,
   platform: string,
   campaignType: string,
   aspectRatio: string,
   tone: string,
   designStyle: string,
+  theme: VisualTheme,
   mode: string,
   language: string,
   customInstruction: string,
@@ -702,7 +706,7 @@ export const generateFinalVisual = async (
   if (!ai) return null;
 
   const brandName = resolveVisualBrandName(productName);
-  const brandReferenceImages = previousImage ? [] : await loadVisualBrandReferenceImages();
+  const brandReferenceImages = await loadVisualBrandReferenceImages();
   const parts: any[] = buildVisualReferenceParts({
     images,
     previousImage,
@@ -716,10 +720,13 @@ export const generateFinalVisual = async (
     headline,
     subheadline,
     cta,
+    includeCta,
     language,
     images,
     featureName,
     brandName,
+    theme,
+    variationIndex,
     hasBrandReferences: brandReferenceImages.length > 0,
     campaignType,
     campaignFocus,
@@ -737,7 +744,7 @@ export const generateFinalVisual = async (
       contents: { parts },
       config: {
         imageConfig: {
-          aspectRatio: aspectRatio as any,
+          aspectRatio: getGeminiImageConfigAspectRatio(aspectRatio),
           imageSize: "1K"
         }
       }

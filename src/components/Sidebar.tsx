@@ -4,7 +4,7 @@ import { Upload, Image as ImageIcon, X, Settings, Info, ChevronDown, ChevronRigh
 import { buildGeminiRenderPrompt } from '../lib/visual-prompt';
 import { buildPrompt, generateCopyIdeas, extractColorPalette, generateTopicIdeas, planVisualPrompt, type TopicIdeaSuggestion, type VisualPromptPlanResult } from '../services/gemini';
 import { fetchSanityCategories, fetchSanityPosts } from '../services/sanity';
-import { fetchStrategyContext, type IntegrationStatus } from '../services/integrations';
+import { fetchVisualContext, type IntegrationStatus } from '../services/integrations';
 import {
   buildInternalLinkAudit,
   buildEditorialPostUrl,
@@ -56,6 +56,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
   const [isAiIdeasPromptOpen, setIsAiIdeasPromptOpen] = useState(false);
   const [aiIdeasDirection, setAiIdeasDirection] = useState('');
   const [strategyContextPromptText, setStrategyContextPromptText] = useState('');
+  const [realityContextPromptText, setRealityContextPromptText] = useState('');
   const [visualPromptPlanResult, setVisualPromptPlanResult] = useState<VisualPromptPlanResult | null>(null);
   const [isLoadingVisualPromptPlan, setIsLoadingVisualPromptPlan] = useState(false);
   const [expandedSections, setExpandedSections] = useState({
@@ -91,24 +92,26 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     setVisualPromptPlanResult(null);
 
     void Promise.all([
-      fetchStrategyContext().catch((error) => {
-        console.error('Failed to load strategy context for prompt preview:', error);
+      fetchVisualContext().catch((error) => {
+        console.error('Failed to load visual context for prompt preview:', error);
         return null;
       }),
-      openAiConfigured
+          openAiConfigured
         ? planVisualPrompt({
             productName: state.productName,
             featureName: state.featureName,
             description: state.description,
             headline: state.headline,
             subheadline: state.subheadline,
-            cta: state.cta,
+            cta: state.includeCta ? state.cta : '',
+            includeCta: state.includeCta,
             brandColor: state.brandColor,
             platform: state.platform,
             campaignType: state.campaignType,
             aspectRatio: state.aspectRatio,
             tone: state.tone,
             designStyle: state.designStyle,
+            theme: state.theme,
             mode: state.mode,
             language: state.language,
             customInstruction: state.customInstruction,
@@ -120,12 +123,13 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
           })
         : Promise.resolve(null),
     ])
-      .then(([strategySnapshot, promptPlan]) => {
+      .then(([visualContextSnapshot, promptPlan]) => {
         if (cancelled) {
           return;
         }
 
-        setStrategyContextPromptText(strategySnapshot?.available ? strategySnapshot.promptText : '');
+        setStrategyContextPromptText(visualContextSnapshot?.strategyAvailable ? visualContextSnapshot.strategyPromptText : '');
+        setRealityContextPromptText(visualContextSnapshot?.realityAvailable ? visualContextSnapshot.realityPromptText : '');
         setVisualPromptPlanResult(promptPlan);
       })
       .finally(() => {
@@ -146,12 +150,14 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
     state.headline,
     state.subheadline,
     state.cta,
+    state.includeCta,
     state.brandColor,
     state.platform,
     state.campaignType,
     state.aspectRatio,
     state.tone,
     state.designStyle,
+    state.theme,
     state.mode,
     state.language,
     state.customInstruction,
@@ -162,13 +168,16 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
 
   const geminiRenderPromptPreview = visualPromptPlanResult
     ? buildGeminiRenderPrompt({
-        plannedPrompt: visualPromptPlanResult.prompt,
-        headline: state.headline,
-        subheadline: state.subheadline,
-        cta: state.cta,
-        language: state.language,
+      plannedPrompt: visualPromptPlanResult.prompt,
+      headline: state.headline,
+      subheadline: state.subheadline,
+      cta: state.includeCta ? state.cta : '',
+      includeCta: state.includeCta,
+      language: state.language,
         images: state.images,
         featureName: state.featureName,
+        theme: state.theme,
+        variationIndex: 0,
         brandName: state.productName,
         hasBrandReferences: true,
         campaignType: state.campaignType,
@@ -204,7 +213,8 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
         state.campaignType,
         state.tone,
         state.language,
-        aiIdeasDirection.trim()
+        aiIdeasDirection.trim(),
+        state.includeCta
       );
       if (ideas) {
         setCopyIdeas(ideas);
@@ -212,7 +222,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
           ...prev,
           headline: ideas.headlines[0] || prev.headline,
           subheadline: ideas.subheadlines[0] || prev.subheadline,
-          cta: ideas.ctas[0] || prev.cta,
+          cta: prev.includeCta ? ideas.ctas[0] || prev.cta : prev.cta,
         }));
       }
     } finally {
@@ -1272,6 +1282,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                     </div>
                   </div>
                   
+                  {state.includeCta && copyIdeas.ctas.length > 0 && (
                   <div className="space-y-2">
                     <p className="text-[10px] text-indigo-700 font-medium">CTAs</p>
                     <div className="flex flex-wrap gap-1">
@@ -1280,6 +1291,7 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                       ))}
                     </div>
                   </div>
+                  )}
                 </div>
               )}
 
@@ -1323,14 +1335,26 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
               </div>
 
               <div className="space-y-1.5">
-                <label className="block text-[11px] font-medium text-zinc-500">CTA Text (Optional)</label>
+                <div className="flex items-center justify-between gap-3">
+                  <label className="block text-[11px] font-medium text-zinc-500">CTA Text (Optional)</label>
+                  <label className="inline-flex items-center gap-2 text-[11px] font-medium text-zinc-500">
+                    <input
+                      type="checkbox"
+                      checked={state.includeCta}
+                      onChange={(e) => setState(prev => ({ ...prev, includeCta: e.target.checked }))}
+                      className="h-3.5 w-3.5 rounded border-zinc-300 text-zinc-900 focus:ring-zinc-900"
+                    />
+                    Include CTA
+                  </label>
+                </div>
                 <input
                   type="text"
                   name="cta"
                   value={state.cta}
                   onChange={handleChange}
-                  className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors"
-                  placeholder="e.g. Try it for free"
+                  disabled={!state.includeCta}
+                  className="w-full px-2.5 py-1.5 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors disabled:bg-zinc-100 disabled:text-zinc-400 disabled:cursor-not-allowed"
+                  placeholder={state.includeCta ? 'e.g. Try it for free' : 'CTA disabled for this visual'}
                 />
               </div>
 
@@ -1457,6 +1481,21 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
               </div>
 
               <div className="space-y-1.5">
+                <label className="block text-[11px] font-medium text-zinc-500">Theme</label>
+                <select
+                  name="theme"
+                  value={state.theme}
+                  onChange={handleChange}
+                  className="w-full px-2.5 py-1.5 pr-8 border border-zinc-200 rounded-md shadow-sm focus:ring-zinc-900 focus:border-zinc-900 text-xs transition-colors appearance-none bg-white"
+                  style={{ backgroundImage: `url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='M6 8l4 4 4-4'/%3e%3c/svg%3e")`, backgroundPosition: 'right 0.25rem center', backgroundRepeat: 'no-repeat', backgroundSize: '1.2em 1.2em' }}
+                >
+                  <option value="light">Light</option>
+                  <option value="dark">Dark</option>
+                  <option value="mixed">Mixed</option>
+                </select>
+              </div>
+
+              <div className="space-y-1.5">
                 <label className="block text-[11px] font-medium text-zinc-500">Mode</label>
                 <select
                   name="mode"
@@ -1572,13 +1611,14 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                       state.description,
                       state.headline,
                       state.subheadline,
-                      state.cta,
+                      state.includeCta ? state.cta : '',
                       state.brandColor,
                       state.platform,
                       state.campaignType,
                       state.aspectRatio,
                       state.tone,
                       state.designStyle,
+                      state.theme,
                       state.mode,
                       state.language,
                       state.customInstruction,
@@ -1587,7 +1627,9 @@ export function Sidebar({ state, setState, onGenerate, isGenerating, onOpenSetti
                       undefined,
                       undefined,
                       state.referenceImage,
-                      strategyContextPromptText
+                      strategyContextPromptText,
+                      realityContextPromptText,
+                      state.includeCta
                     )}
                   </pre>
                 </section>

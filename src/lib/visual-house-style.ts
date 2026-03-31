@@ -1,3 +1,5 @@
+export type VisualTheme = 'light' | 'dark' | 'mixed';
+
 function normalizeHexColor(value: string) {
   const normalized = String(value || '').trim();
   return /^#[0-9a-f]{6}$/i.test(normalized) ? normalized.toUpperCase() : '#C7FF41';
@@ -16,6 +18,7 @@ export const VISUAL_CREATOR_DEFAULTS = {
   campaignType: 'Product promotion',
   tone: 'Professional',
   designStyle: 'Quiet Signal Editorial',
+  theme: 'mixed',
   mode: 'Social Media Promo',
 } as const;
 
@@ -29,6 +32,7 @@ export const VISUAL_CREATOR_PRESETS = [
       campaignType: 'Feature announcement',
       tone: 'Professional',
       designStyle: 'Quiet Signal Editorial',
+      theme: 'mixed',
       mode: 'Social Media Promo',
     },
   },
@@ -41,6 +45,7 @@ export const VISUAL_CREATOR_PRESETS = [
       campaignType: 'Product promotion',
       tone: 'Professional',
       designStyle: 'Quiet Signal Editorial',
+      theme: 'mixed',
       mode: 'Social Media Promo',
     },
   },
@@ -53,6 +58,7 @@ export const VISUAL_CREATOR_PRESETS = [
       campaignType: 'Landing page visual',
       tone: 'Premium',
       designStyle: 'Quiet Signal Editorial',
+      theme: 'mixed',
       mode: 'Magazine Editorial',
     },
   },
@@ -69,13 +75,13 @@ HOUSE STYLE: ${VISUAL_HOUSE_STYLE.name}
 - Introduce one disciplined signal frame, beam, border, or crop tension so the composition feels unmistakably branded.
 - Use a calm neutral base palette first, then exactly one accent color derived from the brand color: ${accentColor}.
 - Favor asymmetrical composition, large negative space, sharp hierarchy, and a deliberate premium feel.
-- Keep text minimal and decisive. Headline, subheadline, and CTA only. No extra labels, captions, badges, or paragraphs unless the campaign explicitly requires one.
+- Keep text minimal and decisive. Use headline and subheadline, plus at most one CTA when CTA is enabled. No extra labels, captions, badges, or paragraphs unless the campaign explicitly requires one.
 - Avoid clutter, icon showers, busy gradients, floating junk, meme energy, cheap urgency tropes, and generic startup stock aesthetics.
 `.trim();
 }
 
 const QUIET_SIGNAL_VARIATIONS = [
-  'Variation direction: editorial poster. One oversized hero element, balanced negative space, and a stable CTA anchor.',
+  'Variation direction: editorial poster. One oversized hero element, balanced negative space, and a stable lower text anchor.',
   'Variation direction: tight crop. Push one meaningful subject or UI fragment large into frame so the concept reads instantly.',
   'Variation direction: asymmetric signal board. Keep the layout structured but off-center, with one disciplined supporting motif.',
   'Variation direction: high-contrast stillness. Reduce the scene even further and let one sharp visual tension point carry the frame.',
@@ -83,4 +89,36 @@ const QUIET_SIGNAL_VARIATIONS = [
 
 export function getVisualHouseStyleVariationText(variationIndex: number) {
   return QUIET_SIGNAL_VARIATIONS[Math.abs(variationIndex) % QUIET_SIGNAL_VARIATIONS.length];
+}
+
+export function resolveVisualThemeForVariation(theme: VisualTheme, variationIndex: number): 'light' | 'dark' {
+  if (theme === 'light' || theme === 'dark') {
+    return theme;
+  }
+
+  return Math.abs(variationIndex) % 4 < 2 ? 'light' : 'dark';
+}
+
+export function buildVisualThemeBlock(theme: VisualTheme, variationIndex: number) {
+  const resolvedTheme = resolveVisualThemeForVariation(theme, variationIndex);
+
+  if (resolvedTheme === 'light') {
+    return `
+THEME DIRECTION:
+- Requested Theme Mode: ${theme}
+- Resolved Theme Variant: light
+- Keep the overall frame light-dominant, airy, and bright.
+- Use pale neutrals, soft paper tones, off-white surfaces, or restrained daylight treatment.
+- Do not drift into dark-mode backgrounds or night palettes.
+`.trim();
+  }
+
+  return `
+THEME DIRECTION:
+- Requested Theme Mode: ${theme}
+- Resolved Theme Variant: dark
+- Keep the overall frame dark-dominant, grounded, and high-contrast.
+- Use charcoal, graphite, ink, deep navy, or restrained night-studio treatment.
+- Do not drift into bright white canvases or light-mode product framing.
+`.trim();
 }

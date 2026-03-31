@@ -35,6 +35,15 @@ export interface StrategyContextSnapshot {
   sourcePath: string | null;
 }
 
+export interface VisualContextSnapshot {
+  strategyAvailable: boolean;
+  strategyPromptText: string;
+  strategySourcePath: string | null;
+  realityAvailable: boolean;
+  realityPromptText: string;
+  realitySourcePaths: string[];
+}
+
 export const defaultIntegrationStatus: IntegrationStatus = {
   openai: {
     configured: false,
@@ -135,6 +144,31 @@ export async function fetchStrategyContext(): Promise<StrategyContextSnapshot> {
     available: payload?.available === true,
     promptText: typeof payload?.promptText === 'string' ? payload.promptText : '',
     sourcePath: typeof payload?.sourcePath === 'string' ? payload.sourcePath : null,
+  };
+}
+
+export async function fetchVisualContext(): Promise<VisualContextSnapshot> {
+  const response = await fetch('/api/visual/context', {
+    headers: {
+      Accept: 'application/json',
+    },
+    cache: 'no-store',
+  });
+
+  if (!response.ok) {
+    throw new Error(response.statusText || 'Failed to fetch visual context.');
+  }
+
+  const payload = await response.json();
+  return {
+    strategyAvailable: payload?.strategyAvailable === true,
+    strategyPromptText: typeof payload?.strategyPromptText === 'string' ? payload.strategyPromptText : '',
+    strategySourcePath: typeof payload?.strategySourcePath === 'string' ? payload.strategySourcePath : null,
+    realityAvailable: payload?.realityAvailable === true,
+    realityPromptText: typeof payload?.realityPromptText === 'string' ? payload.realityPromptText : '',
+    realitySourcePaths: Array.isArray(payload?.realitySourcePaths)
+      ? payload.realitySourcePaths.filter((item: unknown): item is string => typeof item === 'string')
+      : [],
   };
 }
 

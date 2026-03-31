@@ -5,9 +5,11 @@ import {
 } from './visual-brand-profile';
 import {
   VISUAL_HOUSE_STYLE,
+  buildVisualThemeBlock,
   buildVisualHouseStyleBlock,
   getVisualHouseStyleVariationText,
 } from './visual-house-style';
+import type { VisualTheme } from './visual-house-style';
 
 export function buildVisualStrategyContextBlock(strategyContextPromptText?: string) {
   const normalized = String(strategyContextPromptText || '').trim();
@@ -20,6 +22,19 @@ PRODUCT STRATEGY CONTEXT (from PRD/ROADMAP docs):
 ${normalized}
 
 IMPORTANT: Align the visual concept, feature emphasis, and any supporting product framing with this strategy context and shipped capabilities. Do not imply features, workflows, or outcomes that are not present here.`;
+}
+
+export function buildVisualRealityContextBlock(realityContextPromptText?: string) {
+  const normalized = String(realityContextPromptText || '').trim();
+  if (!normalized) {
+    return '';
+  }
+
+  return `
+LOCAL CODEBASE REALITY CONTEXT (derived from nearby product code):
+${normalized}
+
+IMPORTANT: Treat this local product reality as higher priority than generic SaaS assumptions. If it says scoring is 0-10, do not invent 0-100 dashboards, percentile gauges, or enterprise scorecards unless the brief explicitly asks for them.`;
 }
 
 function buildPlatformInstruction(platform: string) {
@@ -254,6 +269,56 @@ USER FEEDBACK TO APPLY:
 `.trim();
 }
 
+function buildMandatoryCopyRule(includeCta: boolean) {
+  return includeCta
+    ? 'The prompt must explicitly keep the visible copy limited to the provided headline, subheadline, and CTA.'
+    : 'The prompt must explicitly keep the visible copy limited to the provided headline and subheadline only. CTA is disabled for this visual.';
+}
+
+function buildMandatoryCopyBlock(headline: string, subheadline: string, cta: string, includeCta: boolean) {
+  if (!includeCta) {
+    return `
+MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
+Headline: "${headline || '[Auto-generated headline]'}"
+Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+CTA: none
+
+- CTA is disabled for this visual.
+- Use headline and subheadline only.
+- Do not add any button label, action chip, footer CTA, or invented action copy.
+`.trim();
+  }
+
+  return `
+MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
+Headline: "${headline || '[Auto-generated headline]'}"
+Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+Call to Action (CTA) Button: "${cta || '[Auto-generated CTA]'}"
+`.trim();
+}
+
+function buildRenderCopyBlock(headline: string, subheadline: string, cta: string, includeCta: boolean) {
+  if (!includeCta) {
+    return `
+MANDATORY TEXT TO RENDER:
+Headline: "${headline || '[Auto-generated headline]'}"
+Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+CTA: none
+
+- CTA is disabled for this visual.
+- Render headline and subheadline only.
+- Do not add any button label, action chip, footer CTA, or invented action copy.
+`.trim();
+  }
+
+  return `
+MANDATORY TEXT TO RENDER:
+Headline: "${headline || '[Auto-generated headline]'}"
+Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+Call to Action (CTA) Button: "${cta || '[Auto-generated CTA]'}"
+`.trim();
+}
+
 export const buildPrompt = (
   images: string[],
   productName: string,
@@ -268,6 +333,7 @@ export const buildPrompt = (
   aspectRatio: string,
   tone: string,
   designStyle: string,
+  theme: VisualTheme,
   mode: string,
   language: string,
   customInstruction: string,
@@ -276,13 +342,17 @@ export const buildPrompt = (
   previousImage?: string,
   userComment?: string,
   referenceImage?: string | null,
-  strategyContextPromptText?: string
+  strategyContextPromptText?: string,
+  realityContextPromptText?: string,
+  includeCta: boolean = true
 ): string => {
   const outputLanguage = getSingleOutputLanguageName(language);
   const resolvedProductName = resolveVisualBrandName(productName);
   const strategyContextBlock = buildVisualStrategyContextBlock(strategyContextPromptText);
+  const realityContextBlock = buildVisualRealityContextBlock(realityContextPromptText);
   const brandBlock = buildVisualBrandBlock(productName);
   const houseStyleBlock = buildVisualHouseStyleBlock(brandColor);
+  const themeBlock = buildVisualThemeBlock(theme, variationIndex);
   const platformInstruction = buildPlatformInstruction(platform);
   const campaignObjectiveBlock = buildCampaignObjectiveBlock(campaignType, campaignFocus, featureName);
   const customInstructionBlock = buildCustomInstructionBlock(customInstruction);
@@ -314,7 +384,7 @@ Rules for the JSON response:
 - The prompt must stay concise and production-ready, roughly 90-160 words.
 - The prompt must keep the ${VISUAL_HOUSE_STYLE.name} house style intact.
 - The prompt must clearly describe one dominant signal object or one dominant subject, not a busy scene.
-- The prompt must explicitly keep the visible copy limited to the provided headline, subheadline, and CTA.
+- ${buildMandatoryCopyRule(includeCta)}
 - The prompt must mention that the brand color is a controlled accent, not a full-canvas wash.
 - The prompt must avoid clutter, sticker energy, icon showers, chaotic gradients, meme tropes, and generic stock-SaaS vibes.
 - The prompt must not invent features, workflows, or claims beyond the provided context.
@@ -331,6 +401,7 @@ Aspect Ratio: ${aspectRatio}
 Campaign Type: ${campaignType}
 Tone: ${tone}
 Design Style: ${designStyle}
+Theme Mode: ${theme}
 Mode: ${mode}
 Language for visible text: ${outputLanguage}
 Campaign Focus / Theme: ${campaignFocus || 'General product promotion'}
@@ -339,18 +410,19 @@ Custom Instructions: ${customInstruction || 'None'}
 ${VISUAL_HOUSE_STYLE.name.toUpperCase()} HOUSE STYLE:
 ${houseStyleBlock}
 
+${themeBlock}
+
 ${brandBlock}
 
 ${strategyContextBlock}
+
+${realityContextBlock}
 
 ${campaignObjectiveBlock}
 
 ${customInstructionBlock}
 
-MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
-Headline: "${headline || '[Auto-generated headline]'}"
-Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
-Call to Action (CTA) Button: "${cta || '[Auto-generated CTA]'}"
+${buildMandatoryCopyBlock(headline, subheadline, cta, includeCta)}
 
 CREATIVE DIRECTION:
 1. ${platformInstruction}
@@ -370,9 +442,12 @@ export interface GeminiRenderPromptInput {
   headline: string;
   subheadline: string;
   cta: string;
+  includeCta?: boolean;
   language: string;
   images: string[];
   featureName: string;
+  theme?: VisualTheme;
+  variationIndex?: number;
   brandName?: string;
   hasBrandReferences?: boolean;
   campaignType?: string;
@@ -386,8 +461,10 @@ export interface GeminiRenderPromptInput {
 export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
   const outputLanguage = getSingleOutputLanguageName(input.language);
   const brandName = resolveVisualBrandName(input.brandName);
+  const variationIndex = input.variationIndex ?? 0;
   const normalizedPlannedPrompt = String(input.plannedPrompt || '').trim()
     || `Minimal ${VISUAL_HOUSE_STYLE.name} editorial poster for ${input.featureName || brandName || 'the product'}.`;
+  const themeBlock = buildVisualThemeBlock(input.theme || 'mixed', variationIndex);
   const feedbackInstruction = buildFeedbackInstruction(input.userComment);
   const campaignObjectiveBlock = buildCampaignObjectiveBlock(
     input.campaignType || '',
@@ -438,10 +515,12 @@ BRAND REFERENCES:
   return `
 ${normalizedPlannedPrompt}
 
-MANDATORY TEXT TO RENDER:
-Headline: "${input.headline || '[Auto-generated headline]'}"
-Subheadline: "${input.subheadline || '[Auto-generated subheadline]'}"
-Call to Action (CTA) Button: "${input.cta || '[Auto-generated CTA]'}"
+${buildRenderCopyBlock(
+    input.headline,
+    input.subheadline,
+    input.cta,
+    input.includeCta ?? true
+  )}
 
 RENDERER RULES:
 - All visible text must be in ${outputLanguage}.
@@ -450,6 +529,7 @@ RENDERER RULES:
 - Keep supporting details sparse and subordinate.
 - No sticker piles, icon showers, generic dashboard overload, or chaotic background effects.
 
+${themeBlock}
 ${assetInstruction}
 ${campaignObjectiveBlock}
 ${customInstructionBlock}

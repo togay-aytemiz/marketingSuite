@@ -61,10 +61,14 @@ export function createInlineImagePart(dataUrl?: string | null): GeminiInlineImag
 export function buildVisualReferenceParts(input: VisualReferencePartsInput): GeminiInlineImagePart[] {
   const images = Array.isArray(input.images) ? input.images : [];
   const brandReferenceImages = Array.isArray(input.brandReferenceImages) ? input.brandReferenceImages : [];
+  const previousPart = createInlineImagePart(input.previousImage);
 
-  if (input.previousImage) {
-    const previousPart = createInlineImagePart(input.previousImage);
-    return previousPart ? [previousPart] : [];
+  if (previousPart) {
+    return [
+      previousPart,
+      createInlineImagePart(input.referenceImage),
+      ...brandReferenceImages.map((image) => createInlineImagePart(image)).filter(Boolean),
+    ].filter(Boolean) as GeminiInlineImagePart[];
   }
 
   return [

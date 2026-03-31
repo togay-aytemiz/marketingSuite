@@ -26,22 +26,30 @@ test('buildVisualReferenceParts skips unsupported svg brand references but keeps
   ]);
 });
 
-test('buildVisualReferenceParts keeps only the previous image during magic edit', () => {
+test('buildVisualReferenceParts keeps the previous image and raster references during magic edit', () => {
   const parts = buildVisualReferenceParts({
     images: ['data:image/png;base64,SCREENSHOT'],
     previousImage: 'data:image/png;base64,PREVIOUS',
     referenceImage: 'data:image/jpeg;base64,REFERENCE',
     brandReferenceImages: [
-      'data:image/svg+xml;base64,LOGO',
+      'data:image/png;base64,LOGO',
       'data:image/svg+xml;base64,ICON',
     ],
   });
 
-  assert.equal(parts.length, 1);
-  assert.deepEqual(parts[0], {
-    inlineData: {
+  assert.equal(parts.length, 3);
+  assert.deepEqual(parts.map((part) => part.inlineData), [
+    {
       mimeType: 'image/png',
       data: 'PREVIOUS',
     },
-  });
+    {
+      mimeType: 'image/jpeg',
+      data: 'REFERENCE',
+    },
+    {
+      mimeType: 'image/png',
+      data: 'LOGO',
+    },
+  ]);
 });

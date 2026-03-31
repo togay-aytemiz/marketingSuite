@@ -25,5 +25,13 @@ test('visual AI Ideas auto-fill the current headline, subheadline, and CTA from 
 
   assert.match(source, /headline:\s*ideas\.headlines\[0\]\s*\|\|\s*prev\.headline/);
   assert.match(source, /subheadline:\s*ideas\.subheadlines\[0\]\s*\|\|\s*prev\.subheadline/);
-  assert.match(source, /cta:\s*ideas\.ctas\[0\]\s*\|\|\s*prev\.cta/);
+  assert.match(source, /cta:\s*prev\.includeCta\s*\?\s*ideas\.ctas\[0\]\s*\|\|\s*prev\.cta\s*:\s*prev\.cta/);
+});
+
+test('CTA field exposes an include toggle and disables text input when unchecked', () => {
+  const source = readFileSync(path.join(process.cwd(), 'src', 'components', 'Sidebar.tsx'), 'utf8');
+
+  assert.match(source, /Include CTA/);
+  assert.match(source, /checked=\{state\.includeCta\}/);
+  assert.match(source, /disabled=\{!state\.includeCta\}/);
 });

@@ -10,6 +10,8 @@ test('defaults app language to BOTH', () => {
 
 test('defaults visual creator to the quiet-signal house style', () => {
   assert.equal(defaultState.designStyle, 'Quiet Signal Editorial');
+  assert.equal(defaultState.theme, 'mixed');
+  assert.equal(defaultState.includeCta, true);
 });
 
 test('migrates legacy stored TR language to BOTH but preserves explicit modern choice', () => {
@@ -43,6 +45,7 @@ test('persists the current app state version with normalized language', () => {
   assert.equal(persisted.language, 'EN');
   assert.equal(persisted.productName, 'Qualy');
   assert.equal(persisted.blogKeywords, 'whatsapp otomasyonu, müşteri adayı puanlama');
+  assert.equal(persisted.includeCta, true);
   assert.deepEqual(persisted.blogKeywordStrategy, {
     primaryKeyword: 'whatsapp otomasyonu',
     secondaryKeywords: ['müşteri adayı puanlama'],
@@ -76,4 +79,19 @@ test('hydrates structured keyword strategy from legacy flat keyword summaries', 
     'satış iş akışı',
   ]);
   assert.equal(hydrated.blogKeywords, 'whatsapp otomasyonu, müşteri adayı puanlama, satış iş akışı');
+});
+
+test('hydrates CTA toggle from persisted state and defaults legacy sessions to enabled', () => {
+  const legacyState = hydrateAppState(JSON.stringify({ cta: 'See Qualy' }));
+  const persistedState = hydrateAppState(
+    JSON.stringify({
+      stateVersion: APP_STATE_VERSION,
+      includeCta: false,
+      cta: 'See Qualy',
+    })
+  );
+
+  assert.equal(legacyState.includeCta, true);
+  assert.equal(persistedState.includeCta, false);
+  assert.equal(persistedState.cta, 'See Qualy');
 });

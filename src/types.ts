@@ -1,6 +1,7 @@
 import type { BlogInlineImagePlan } from './lib/blog-image-slots';
 import { DEFAULT_BLOG_LENGTH, type BlogLengthOption } from './lib/blog-length';
 import type { AppLanguage } from './lib/app-language';
+import type { VisualTheme } from './lib/visual-house-style';
 import { VISUAL_CREATOR_DEFAULTS } from './lib/visual-house-style';
 
 export interface SeoAnalysis {
@@ -67,6 +68,7 @@ export interface AppState {
   headline: string;
   subheadline: string;
   cta: string;
+  includeCta: boolean;
   campaignFocus: string; // New field for specific theme/focus
   activePreset: string | null;
   platform: 'LinkedIn' | 'Instagram' | 'X' | 'Website';
@@ -75,6 +77,7 @@ export interface AppState {
   campaignType: string;
   tone: string;
   designStyle: string;
+  theme: VisualTheme;
   mode: string;
   language: AppLanguage;
   customInstruction: string;
@@ -136,6 +139,7 @@ export const defaultState: AppState = {
   headline: '',
   subheadline: '',
   cta: '',
+  includeCta: true,
   campaignFocus: '',
   activePreset: VISUAL_CREATOR_DEFAULTS.activePreset,
   platform: VISUAL_CREATOR_DEFAULTS.platform,
@@ -144,6 +148,7 @@ export const defaultState: AppState = {
   campaignType: VISUAL_CREATOR_DEFAULTS.campaignType,
   tone: VISUAL_CREATOR_DEFAULTS.tone,
   designStyle: VISUAL_CREATOR_DEFAULTS.designStyle,
+  theme: VISUAL_CREATOR_DEFAULTS.theme,
   mode: VISUAL_CREATOR_DEFAULTS.mode,
   language: 'BOTH',
   customInstruction: '',

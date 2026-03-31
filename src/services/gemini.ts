@@ -1,5 +1,6 @@
 import { buildPrompt } from '../lib/visual-prompt';
 import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
+import type { VisualTheme } from '../lib/visual-house-style';
 import type { BlogKeywordStrategy, ResolvedBlogCategory } from '../types';
 
 export { buildPrompt };
@@ -70,12 +71,14 @@ export interface VisualPromptPlanInput {
   headline: string;
   subheadline: string;
   cta: string;
+  includeCta?: boolean;
   brandColor: string;
   platform: string;
   campaignType: string;
   aspectRatio: string;
   tone: string;
   designStyle: string;
+  theme: VisualTheme;
   mode: string;
   language: string;
   customInstruction: string;
@@ -148,7 +151,8 @@ export async function generateMarketingCopy(
   platform: string,
   campaignType: string,
   tone: string,
-  language: string
+  language: string,
+  includeCta: boolean = true
 ) {
   return postAiAction<{ headline: string; subheadline: string; cta: string }>('generate-marketing-copy', {
     productName,
@@ -158,6 +162,7 @@ export async function generateMarketingCopy(
     campaignType,
     tone,
     language,
+    includeCta,
   });
 }
 
@@ -169,7 +174,8 @@ export async function generateCopyIdeas(
   campaignType: string,
   tone: string,
   language: string,
-  ideaAngle?: string
+  ideaAngle?: string,
+  includeCta: boolean = true
 ) {
   return postAiAction<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>('generate-copy-ideas', {
     productName,
@@ -180,6 +186,7 @@ export async function generateCopyIdeas(
     tone,
     language,
     ideaAngle,
+    includeCta,
   });
 }
 
@@ -203,12 +210,14 @@ export const generateFinalVisual = async (
   headline: string,
   subheadline: string,
   cta: string,
+  includeCta: boolean,
   brandColor: string,
   platform: string,
   campaignType: string,
   aspectRatio: string,
   tone: string,
   designStyle: string,
+  theme: VisualTheme,
   mode: string,
   language: string,
   customInstruction: string,
@@ -227,12 +236,14 @@ export const generateFinalVisual = async (
     headline,
     subheadline,
     cta,
+    includeCta,
     brandColor,
     platform,
     campaignType,
     aspectRatio,
     tone,
     designStyle,
+    theme,
     mode,
     language,
     customInstruction,

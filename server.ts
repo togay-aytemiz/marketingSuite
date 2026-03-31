@@ -35,6 +35,7 @@ import {
 } from './src/lib/editorial-request-fallback';
 import { fetchSanityCategories, fetchSanityPosts, publishToSanity, syncEditorialCategories } from './src/server/sanity';
 import { getStrategyContextSnapshot } from './src/server/strategy-context';
+import { getVisualContextSnapshot } from './src/server/visual-context';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const execFileAsync = promisify(execFile);
@@ -141,6 +142,10 @@ async function startServer() {
 
   app.get('/api/strategy/context', (_req, res) => {
     res.json(getStrategyContextSnapshot());
+  });
+
+  app.get('/api/visual/context', (_req, res) => {
+    res.json(getVisualContextSnapshot());
   });
 
   app.get('/api/sanity/categories', async (req, res) => {
@@ -263,7 +268,8 @@ async function startServer() {
             req.body.platform || req.body.campaignType,
             req.body.campaignType,
             req.body.tone,
-            req.body.language
+            req.body.language,
+            req.body.includeCta
           );
           break;
         case 'generate-copy-ideas':
@@ -275,7 +281,8 @@ async function startServer() {
             req.body.campaignType,
             req.body.tone,
             req.body.language,
-            req.body.ideaAngle
+            req.body.ideaAngle,
+            req.body.includeCta
           );
           break;
         case 'plan-visual-prompt':
@@ -286,12 +293,14 @@ async function startServer() {
             headline: req.body.headline,
             subheadline: req.body.subheadline,
             cta: req.body.cta,
+            includeCta: req.body.includeCta,
             brandColor: req.body.brandColor,
             platform: req.body.platform,
             campaignType: req.body.campaignType,
             aspectRatio: req.body.aspectRatio,
             tone: req.body.tone,
             designStyle: req.body.designStyle,
+            theme: req.body.theme,
             mode: req.body.mode,
             language: req.body.language,
             customInstruction: req.body.customInstruction,
@@ -315,12 +324,14 @@ async function startServer() {
             req.body.headline,
             req.body.subheadline,
             req.body.cta,
+            req.body.includeCta,
             req.body.brandColor,
             req.body.platform,
             req.body.campaignType,
             req.body.aspectRatio,
             req.body.tone,
             req.body.designStyle,
+            req.body.theme,
             req.body.mode,
             req.body.language,
             req.body.customInstruction,

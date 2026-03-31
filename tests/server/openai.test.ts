@@ -268,6 +268,7 @@ test('generateVisualPromptPlan requests a Gemini-ready prompt that keeps the hou
       aspectRatio: '4:5',
       tone: 'Professional',
       designStyle: 'Clean SaaS',
+      theme: 'mixed',
       mode: 'Social Media Promo',
       language: 'EN',
       customInstruction: '',
@@ -283,6 +284,7 @@ test('generateVisualPromptPlan requests a Gemini-ready prompt that keeps the hou
     assert.match(prompts[0] || '', /HOUSE STYLE:\s+Quiet Signal/i);
     assert.match(prompts[0] || '', /Platform:\s+Instagram/i);
     assert.match(prompts[0] || '', /Aspect Ratio:\s+4:5/i);
+    assert.match(prompts[0] || '', /Resolved Theme Variant:\s+dark/i);
     assert.match(prompts[0] || '', /Gemini/i);
     assert.match(prompts[0] || '', /Return JSON only/i);
   } finally {
@@ -336,6 +338,7 @@ test('generateVisualPromptPlan forwards campaign intent and custom instructions 
       aspectRatio: '4:5',
       tone: 'Professional',
       designStyle: 'Clean SaaS',
+      theme: 'light',
       mode: 'Social Media Promo',
       language: 'EN',
       customInstruction: 'Use an angled composition and avoid any device mockup.',

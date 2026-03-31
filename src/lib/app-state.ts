@@ -64,9 +64,11 @@ export function buildPersistedAppState(state: AppState) {
     aspectRatio: state.aspectRatio,
     mode: state.mode,
     designStyle: state.designStyle,
+    theme: state.theme,
     campaignType: state.campaignType,
     headline: state.headline,
     subheadline: state.subheadline,
     cta: state.cta,
+    includeCta: state.includeCta,
   };
 }

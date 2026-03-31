@@ -138,7 +138,8 @@ test('generateCopyIdeas sends the optional AI idea emphasis to the backend', asy
     'Product promotion',
     'Professional',
     'EN',
-    'Lead kalitesini ve dönüşümü vurgula'
+    'Lead kalitesini ve dönüşümü vurgula',
+    false
   );
 
   assert.deepEqual(result, {
@@ -147,6 +148,7 @@ test('generateCopyIdeas sends the optional AI idea emphasis to the backend', asy
     ctas: ['Try Qualy'],
   });
   assert.equal(payload?.ideaAngle, 'Lead kalitesini ve dönüşümü vurgula');
+  assert.equal(payload?.includeCta, false);
 
   global.fetch = originalFetch;
 });
@@ -179,12 +181,14 @@ test('planVisualPrompt sends the planner payload to the backend', async () => {
     headline: 'Stop losing warm leads',
     subheadline: 'Prioritize conversations instantly.',
     cta: 'See Qualy',
+    includeCta: false,
     brandColor: '#84CC16',
     platform: 'Instagram',
     campaignType: 'Product promotion',
     aspectRatio: '4:5',
     tone: 'Professional',
     designStyle: 'Quiet Signal Editorial',
+    theme: 'mixed',
     mode: 'Social Media Promo',
     language: 'EN',
     customInstruction: '',
@@ -202,6 +206,8 @@ test('planVisualPrompt sends the planner payload to the backend', async () => {
   });
   assert.equal(payload?.platform, 'Instagram');
   assert.equal(payload?.aspectRatio, '4:5');
+  assert.equal(payload?.theme, 'mixed');
+  assert.equal(payload?.includeCta, false);
   assert.equal(payload?.hasScreenshots, true);
   assert.equal(payload?.hasReferenceImage, true);
   assert.equal(payload?.userComment, 'Reduce clutter');

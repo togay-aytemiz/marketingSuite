@@ -1,5 +1,6 @@
 import { getOpenAiApiKey } from './env';
 import { getStrategyContextSnapshot } from './strategy-context';
+import { getVisualRealityContextSnapshot } from './visual-reality-context';
 import { selectRelevantSanityPosts } from './gemini';
 import {
   buildInternalBlogUrl,
@@ -127,12 +128,14 @@ export interface VisualPromptPlanInput {
   headline: string;
   subheadline: string;
   cta: string;
+  includeCta?: boolean;
   brandColor: string;
   platform: string;
   campaignType: string;
   aspectRatio: string;
   tone: string;
   designStyle: string;
+  theme: 'light' | 'dark' | 'mixed';
   mode: string;
   language: string;
   customInstruction: string;
@@ -1356,6 +1359,20 @@ IMPORTANT: Align copy concepts, feature emphasis, and value framing with this st
 `;
 }
 
+function buildVisualRealityContextInstruction() {
+  const context = getVisualRealityContextSnapshot();
+  if (!context.available || !context.promptText) {
+    return '';
+  }
+
+  return `
+LOCAL CODEBASE REALITY CONTEXT (derived from nearby product code):
+${context.promptText}
+
+IMPORTANT: Treat this local product reality as higher priority than generic SaaS assumptions. Do not invent alternate score scales, channel coverage, or feature framing that conflicts with it.
+`;
+}
+
 function normalizeVisualCopyContext(
   platformOrCampaignType: string,
   campaignTypeOrTone: string,
@@ -1841,7 +1858,8 @@ export async function generateMarketingCopy(
   platformOrCampaignType: string,
   campaignTypeOrTone: string,
   toneOrLanguage: string,
-  maybeLanguage?: string
+  maybeLanguage?: string,
+  includeCta: boolean = true
 ) {
   const { platform, campaignType, tone, language } = normalizeVisualCopyContext(
     platformOrCampaignType,
@@ -1851,6 +1869,7 @@ export async function generateMarketingCopy(
   );
   const outputLanguage = getSingleOutputLanguageName(language);
   const strategyContextInstruction = buildVisualStrategyContextInstruction();
+  const realityContextInstruction = buildVisualRealityContextInstruction();
   return runOpenAiJson<{ headline: string; subheadline: string; cta: string }>({
     schemaName: 'marketing_copy',
     schema: {
@@ -1874,11 +1893,14 @@ Campaign Type: ${campaignType}
 Tone: ${tone}
 Language: ${outputLanguage}
 ${strategyContextInstruction}
+${realityContextInstruction}
 
 Rules:
 - headline: max 8 words
 - subheadline: max 15 words
-- cta: max 4 words
+- CTA Enabled: ${includeCta ? 'yes' : 'no'}
+- ${includeCta ? 'cta: max 4 words' : 'cta: return an empty string'}
+- ${includeCta ? 'Keep the CTA crisp and action-oriented.' : 'CTA is disabled for this visual. Do not invent a CTA, button label, or action copy.'}
 - avoid generic buzzwords
 `,
   });
@@ -1892,7 +1914,8 @@ export async function generateCopyIdeas(
   campaignTypeOrTone: string,
   toneOrLanguage: string,
   maybeLanguage?: string,
-  ideaAngle?: string
+  ideaAngle?: string,
+  includeCta: boolean = true
 ) {
   const { platform, campaignType, tone, language } = normalizeVisualCopyContext(
     platformOrCampaignType,
@@ -1902,13 +1925,14 @@ export async function generateCopyIdeas(
   );
   const outputLanguage = getSingleOutputLanguageName(language);
   const strategyContextInstruction = buildVisualStrategyContextInstruction();
+  const realityContextInstruction = buildVisualRealityContextInstruction();
   const normalizedIdeaAngle = normalizeWhitespace(ideaAngle || '');
   const ideaAngleInstruction = normalizedIdeaAngle
     ? `
 USER COPY EMPHASIS:
 ${normalizedIdeaAngle}
 
-- Use this emphasis to steer the headline, subheadline, and CTA.
+- Use this emphasis to steer the headline, subheadline, and ${includeCta ? 'CTA' : 'overall visual copy'}.
 - Treat it as a priority signal, but keep the copy aligned with the campaign type, strategy context, and real product capabilities.
 `
     : '';
@@ -1936,8 +1960,11 @@ Tone: ${tone}
 Language: ${outputLanguage}
 ${ideaAngleInstruction}
 ${strategyContextInstruction}
+${realityContextInstruction}
 
 Return 3 options for each field.
+- CTA Enabled: ${includeCta ? 'yes' : 'no'}
+- ${includeCta ? 'Return 3 CTA options as short action phrases.' : 'Return ctas as an empty array. CTA is disabled for this visual, so do not invent CTA copy.'}
 `,
   });
 }
@@ -1947,6 +1974,8 @@ export async function generateVisualPromptPlan(
 ): Promise<VisualPromptPlanResult | null> {
   const strategyContext = getStrategyContextSnapshot();
   const strategyContextPromptText = strategyContext.available ? strategyContext.promptText : '';
+  const realityContext = getVisualRealityContextSnapshot();
+  const realityContextPromptText = realityContext.available ? realityContext.promptText : '';
   const brief = buildVisualPromptBrief(
     input.hasScreenshots ? ['screenshot'] : [],
     input.productName,
@@ -1961,6 +1990,7 @@ export async function generateVisualPromptPlan(
     input.aspectRatio,
     input.tone,
     input.designStyle,
+    input.theme || 'mixed',
     input.mode,
     input.language,
     input.customInstruction,
@@ -1969,7 +1999,9 @@ export async function generateVisualPromptPlan(
     input.isMagicEdit ? 'previous-image' : undefined,
     input.userComment,
     input.hasReferenceImage ? 'reference-image' : null,
-    strategyContextPromptText
+    strategyContextPromptText,
+    realityContextPromptText,
+    input.includeCta ?? true
   );
 
   return runOpenAiJson<VisualPromptPlanResult>({
@@ -1995,11 +2027,11 @@ Rules:
 - Return one production-ready Gemini render prompt in English.
 - Preserve the mandatory text exactly as provided in the brief. Do not add extra labels, captions, badges, or body copy.
 - Keep the visual inside the "${VISUAL_HOUSE_STYLE.name}" house style.
-- Respect the platform, aspect ratio, campaign type, campaign focus, custom instructions, and product strategy context.
+- Respect the platform, aspect ratio, campaign type, campaign focus, custom instructions, product strategy context, and local codebase reality context.
 - If the campaign type is product promotion, do not drift into feature-announcement framing unless the brief explicitly requires it.
 - If screenshots are present, tell Gemini to simplify and redraw rather than reproduce clutter.
 - If this is a magic edit, keep the current composition stable and change only what the feedback requires.
-- Do not invent product capabilities, workflows, claims, or UI states that are not supported by the strategy context or explicit brief.
+- Do not invent product capabilities, workflows, claims, UI states, or score scales that are not supported by the strategy context, local codebase reality context, or explicit brief.
 - Avoid generic prompt filler such as "award-winning", "masterpiece", "8k", "ultra detailed", "viral", or "trending on dribbble".
 - Keep the composition minimal, scroll-stopping, and legible at a glance.
 
