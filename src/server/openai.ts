@@ -11,6 +11,14 @@ import {
   normalizeAppLanguage,
 } from '../lib/app-language';
 import {
+  buildSocialPostPlannerPrompt,
+  SOCIAL_POST_STYLE_NAME,
+  type SocialPostCategory,
+  type SocialPostLanguage,
+  type SocialPostPlatform,
+  type SocialPostTheme,
+} from '../lib/social-post-prompt';
+import {
   buildInlineImagePlacementSummaries,
   sanitizeEditorialPromptText,
   stripOuterMarkdownFence,
@@ -149,6 +157,28 @@ export interface VisualPromptPlanInput {
 
 export interface VisualPromptPlanResult {
   prompt: string;
+  styleName: string;
+}
+
+export interface SocialPostPromptPlanInput {
+  productName: string;
+  featureName: string;
+  description: string;
+  platform: SocialPostPlatform;
+  theme: SocialPostTheme;
+  category: SocialPostCategory;
+  language: SocialPostLanguage;
+  focus: string;
+  blogContent: string;
+  extraInstruction: string;
+  variationIndex?: number;
+  hasReferenceImage?: boolean;
+}
+
+export interface SocialPostPromptPlanResult {
+  prompt: string;
+  headline: string;
+  subheadline: string;
   styleName: string;
 }
 
@@ -694,6 +724,32 @@ function normalizeTurkishMarketingText(value: string) {
   return cleanGeneratedMarkdownArtifacts(
     normalizeTurkishTextQuality(enforceTurkishMarketingTerminology(value))
   );
+}
+
+function stripWrappingQuotes(value: string) {
+  let normalized = String(value || '').trim();
+  const quotePairs: Array<[string, string]> = [
+    ['"', '"'],
+    ["'", "'"],
+    ['“', '”'],
+    ['‘', '’'],
+    ['«', '»'],
+    ['‹', '›'],
+  ];
+
+  let changed = true;
+  while (changed && normalized.length >= 2) {
+    changed = false;
+    for (const [open, close] of quotePairs) {
+      if (normalized.startsWith(open) && normalized.endsWith(close)) {
+        normalized = normalized.slice(open.length, normalized.length - close.length).trim();
+        changed = true;
+        break;
+      }
+    }
+  }
+
+  return normalized;
 }
 
 const INLINE_IMAGE_AUXILIARY_HEADING_REGEX = /^(s[ıi]k sorulan sorular|frequently asked questions|faq|sonraki ad[ıi]m|next step)\b/i;
@@ -2040,6 +2096,80 @@ Return JSON only:
 - styleName: "${VISUAL_HOUSE_STYLE.name}"
 `,
   });
+}
+
+export async function generateSocialPostPromptPlan(
+  input: SocialPostPromptPlanInput
+): Promise<SocialPostPromptPlanResult | null> {
+  const strategyContext = getStrategyContextSnapshot();
+  const strategyContextPromptText = strategyContext.available ? strategyContext.promptText : '';
+  const realityContext = getVisualRealityContextSnapshot();
+  const realityContextPromptText = realityContext.available ? realityContext.promptText : '';
+  const brief = buildSocialPostPlannerPrompt({
+    ...input,
+    strategyContextPromptText,
+    realityContextPromptText,
+  });
+
+  const result = await runOpenAiJson<SocialPostPromptPlanResult>({
+    schemaName: 'social_post_prompt_plan',
+    schema: {
+      type: 'object',
+      additionalProperties: false,
+      properties: {
+        prompt: { type: 'string' },
+        headline: { type: 'string' },
+        subheadline: { type: 'string' },
+        styleName: { type: 'string' },
+      },
+      required: ['prompt', 'headline', 'subheadline', 'styleName'],
+    },
+    prompt: `
+You are a senior creative director generating one production-ready Gemini image prompt for a SaaS social media page post visual.
+
+The final image must feel premium, minimal, and immediately legible in-feed while staying faithful to the declared product context.
+
+SOCIAL POST BRIEF:
+${brief}
+
+Rules:
+- Return one production-ready Gemini render prompt in English.
+- Return one short headline and one short supporting subheadline in ${input.language === 'TR' ? 'Turkish' : 'English'} for visible on-canvas typography.
+- The headline should feel bold, premium, and scroll-stopping. Aim for roughly 2-6 words when possible.
+- The subheadline should clarify the value in one short line. Keep it compact, premium, and easy to read at a glance.
+- Keep the copy aligned with the same brief as the image. All four variants should feel like siblings, not unrelated campaigns.
+- If focus is provided, the headline and subheadline must stay anchored to that focus.
+- Treat focus as the primary campaign angle for visible copy, not as a literal phrase to repeat word-for-word.
+- Do not let background product context, project naming, or dominant channel references override the user-provided focus.
+- Use the product context, PRD/ROADMAP context, and local codebase reality to validate the claim set, not to replace the requested angle with a broader default story.
+- The image is not text-free. Design it around a strong headline lockup while keeping all other UI microcopy abstract or unreadable.
+- Keep the frame suitable for Instagram or LinkedIn page posts, not banner ads or website hero layouts.
+- Keep the composition consistent with the selected theme and category system.
+- Do not invent product capabilities, workflows, labels, or UI states beyond the explicit brief, PRD/ROADMAP context, and local codebase reality.
+- If the selected language is Turkish, do not output English placeholder copy except brand/product names that are already explicit in the brief.
+- Do not add standalone decorative logo placements or make the composition revolve around a logo. If the product UI naturally contains a brand mark, it may appear there, but it should stay non-focal.
+- Keep the image premium, minimal, and visually sharp at a glance.
+
+Return JSON only:
+- prompt: final Gemini render prompt
+- headline: short visible headline in the selected language
+- subheadline: short visible supporting line in the selected language
+- styleName: "${SOCIAL_POST_STYLE_NAME}"
+`,
+  });
+
+  if (!result) {
+    return null;
+  }
+
+  const headline = stripWrappingQuotes(result.headline || '');
+  const subheadline = stripWrappingQuotes(result.subheadline || '');
+
+  return {
+    ...result,
+    headline: input.language === 'TR' ? normalizeTurkishMarketingText(headline) : headline,
+    subheadline: input.language === 'TR' ? normalizeTurkishMarketingText(subheadline) : subheadline,
+  };
 }
 
 export const analyzeSeoForBlog = async (

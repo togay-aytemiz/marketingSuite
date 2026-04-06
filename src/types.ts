@@ -1,6 +1,14 @@
 import type { BlogInlineImagePlan } from './lib/blog-image-slots';
 import { DEFAULT_BLOG_LENGTH, type BlogLengthOption } from './lib/blog-length';
 import type { AppLanguage } from './lib/app-language';
+import {
+  SOCIAL_POST_DEFAULTS,
+  SOCIAL_POST_IMAGE_SLOT_COUNT,
+  type SocialPostCategory,
+  type SocialPostLanguage,
+  type SocialPostPlatform,
+  type SocialPostTheme,
+} from './lib/social-post-prompt';
 import type { VisualTheme } from './lib/visual-house-style';
 import { VISUAL_CREATOR_DEFAULTS } from './lib/visual-house-style';
 
@@ -60,7 +68,7 @@ export interface AppState {
   autoBrandColor: boolean;
 
   // App Navigation
-  activeModule: 'visuals' | 'blog';
+  activeModule: 'visuals' | 'socialPosts' | 'blog';
 
   // Visual Creator State
   images: string[];
@@ -82,6 +90,19 @@ export interface AppState {
   language: AppLanguage;
   customInstruction: string;
   finalVisuals: (string | null)[];
+
+  // Social Post Creator State
+  socialPostPlatform: SocialPostPlatform;
+  socialPostTheme: SocialPostTheme;
+  socialPostCategory: SocialPostCategory;
+  socialPostLanguage: SocialPostLanguage;
+  socialPostFocus: string;
+  socialPostBlogContent: string;
+  socialPostReferenceImage: string | null;
+  socialPostHeadlinePlans: (string | null)[];
+  socialPostSubheadlinePlans: (string | null)[];
+  socialPostPromptPlans: (string | null)[];
+  socialPostFinalVisuals: (string | null)[];
 
   // Blog Writer State
   blogTopic: string;
@@ -153,6 +174,17 @@ export const defaultState: AppState = {
   language: 'BOTH',
   customInstruction: '',
   finalVisuals: [null, null, null, null],
+  socialPostPlatform: SOCIAL_POST_DEFAULTS.platform,
+  socialPostTheme: SOCIAL_POST_DEFAULTS.theme,
+  socialPostCategory: SOCIAL_POST_DEFAULTS.category,
+  socialPostLanguage: SOCIAL_POST_DEFAULTS.language,
+  socialPostFocus: '',
+  socialPostBlogContent: '',
+  socialPostReferenceImage: null,
+  socialPostHeadlinePlans: Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null),
+  socialPostSubheadlinePlans: Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null),
+  socialPostPromptPlans: Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null),
+  socialPostFinalVisuals: Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null),
 
   // Blog Writer State
   blogTopic: '',

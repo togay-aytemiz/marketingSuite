@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 
-import { getVisualBrandReferenceAssetCandidates } from '../lib/visual-brand-profile';
+import {
+  getThemeMatchedVisualBrandReferenceAssetCandidate,
+  getVisualBrandReferenceAssetCandidates,
+} from '../lib/visual-brand-profile';
 
 export interface GeminiInlineImagePart {
   inlineData: {
@@ -15,6 +18,11 @@ interface VisualReferencePartsInput {
   previousImage?: string;
   referenceImage?: string | null;
   brandReferenceImages?: string[];
+}
+
+interface LoadVisualBrandReferenceImagesInput {
+  theme?: 'light' | 'dark' | 'mixed';
+  kind?: 'logo' | 'icon' | 'any';
 }
 
 function inferImageMimeType(fileName: string) {
@@ -78,16 +86,24 @@ export function buildVisualReferenceParts(input: VisualReferencePartsInput): Gem
   ].filter(Boolean) as GeminiInlineImagePart[];
 }
 
-let cachedBrandReferenceImages: string[] | null = null;
+const cachedBrandReferenceImages = new Map<string, string[]>();
 
-export async function loadVisualBrandReferenceImages() {
-  if (cachedBrandReferenceImages) {
-    return cachedBrandReferenceImages;
+export async function loadVisualBrandReferenceImages(input: LoadVisualBrandReferenceImagesInput = {}) {
+  const theme = input.theme || 'mixed';
+  const kind = input.kind || 'any';
+  const cacheKey = `${theme}:${kind}`;
+  const cached = cachedBrandReferenceImages.get(cacheKey);
+  if (cached) {
+    return cached;
   }
 
   const brandReferenceImages: string[] = [];
+  const candidates =
+    theme !== 'mixed' && kind !== 'any'
+      ? [getThemeMatchedVisualBrandReferenceAssetCandidate(theme, kind)].filter(Boolean)
+      : getVisualBrandReferenceAssetCandidates().filter((asset) => kind === 'any' || asset.kind === kind);
 
-  for (const asset of getVisualBrandReferenceAssetCandidates()) {
+  for (const asset of candidates) {
     const absolutePath = path.resolve(process.cwd(), asset.relativePath);
 
     try {
@@ -103,7 +119,7 @@ export async function loadVisualBrandReferenceImages() {
   }
 
   if (brandReferenceImages.length > 0) {
-    cachedBrandReferenceImages = brandReferenceImages;
+    cachedBrandReferenceImages.set(cacheKey, brandReferenceImages);
   }
   return brandReferenceImages;
 }

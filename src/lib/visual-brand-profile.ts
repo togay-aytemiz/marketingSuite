@@ -4,6 +4,8 @@ export interface VisualBrandReferenceAssetCandidate {
   relativePath: string;
 }
 
+export type VisualBrandThemeMode = 'light' | 'dark';
+
 export const QUALY_VISUAL_BRAND_PROFILE = {
   id: 'qualy',
   name: 'Qualy',
@@ -78,6 +80,30 @@ export function resolveVisualBrandName(productName?: string) {
 
 export function getVisualBrandReferenceAssetCandidates(): VisualBrandReferenceAssetCandidate[] {
   return QUALY_VISUAL_BRAND_PROFILE.referenceAssetCandidates.map((asset) => ({ ...asset }));
+}
+
+export function getThemeMatchedVisualBrandReferenceAssetCandidate(
+  theme: VisualBrandThemeMode,
+  kind: VisualBrandReferenceAssetCandidate['kind'] = 'logo'
+) {
+  const preferredTone = theme === 'dark' ? 'white' : 'black';
+
+  return getVisualBrandReferenceAssetCandidates()
+    .filter((asset) => asset.kind === kind)
+    .sort((left, right) => {
+      const leftFile = left.fileName.toLowerCase();
+      const rightFile = right.fileName.toLowerCase();
+      const leftScore =
+        (leftFile.includes(preferredTone) ? 100 : 0)
+        + (left.relativePath.startsWith('./Logo/') ? 10 : 0)
+        + (leftFile.endsWith('.png') ? 5 : 0);
+      const rightScore =
+        (rightFile.includes(preferredTone) ? 100 : 0)
+        + (right.relativePath.startsWith('./Logo/') ? 10 : 0)
+        + (rightFile.endsWith('.png') ? 5 : 0);
+
+      return rightScore - leftScore;
+    })[0] || null;
 }
 
 export function buildVisualBrandBlock(productName?: string) {

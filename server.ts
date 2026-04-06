@@ -20,6 +20,7 @@ import {
   generateBlogPost,
   generateCopyIdeas,
   generateMarketingCopy,
+  generateSocialPostPromptPlan,
   generateSocialPosts,
   generateTopicIdeas,
   generateVisualPromptPlan,
@@ -205,6 +206,7 @@ async function startServer() {
       'generate-marketing-copy',
       'generate-copy-ideas',
       'plan-visual-prompt',
+      'plan-social-post-prompt',
       'generate-topic-ideas',
       'analyze-seo-for-blog',
       'regenerate-blog-title',
@@ -312,6 +314,21 @@ async function startServer() {
             userComment: req.body.userComment,
           });
           break;
+        case 'plan-social-post-prompt':
+          result = await generateSocialPostPromptPlan({
+            productName: req.body.productName,
+            featureName: req.body.featureName,
+            description: req.body.description,
+            platform: req.body.platform,
+            theme: req.body.theme,
+            category: req.body.category,
+            language: req.body.language,
+            focus: req.body.focus,
+            blogContent: req.body.blogContent,
+            extraInstruction: req.body.extraInstruction,
+            variationIndex: req.body.variationIndex,
+          });
+          break;
         case 'extract-color-palette':
           result = await extractColorPalette(req.body.imageBase64);
           break;
@@ -340,7 +357,12 @@ async function startServer() {
             req.body.previousImage,
             req.body.userComment,
             req.body.referenceImage,
-            req.body.plannedPrompt
+            req.body.plannedPrompt,
+            req.body.renderText,
+            req.body.attachBrandReferences,
+            req.body.brandReferenceTheme,
+            req.body.brandReferenceKind,
+            req.body.requireBrandPlacement
           );
           break;
         case 'generate-topic-ideas':

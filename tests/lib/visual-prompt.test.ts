@@ -316,3 +316,236 @@ test('buildGeminiRenderPrompt forbids CTA output when CTA is disabled', () => {
   assert.match(prompt, /CTA is disabled for this visual/i);
   assert.doesNotMatch(prompt, /Call to Action \(CTA\) Button:/i);
 });
+
+test('buildGeminiRenderPrompt keeps readable copy limited to the supplied lockup when renderText is enabled', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with sample status chips like hot, warm, cold.',
+    headline: 'Önemli leadleri önce gör',
+    subheadline: 'Yapay zeka en güçlü sinyali yukarı taşısın.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /All visible text must be in Turkish/i);
+  assert.match(prompt, /Only the supplied headline, subheadline, and CTA \(if enabled\) may appear as readable copy/i);
+  assert.match(prompt, /Keep any supporting UI copy abstract, blurred, cropped, or unreadable/i);
+  assert.match(prompt, /Do not render readable UI headers, field labels, card titles, person names, score badges, percentages, list rows, profile names, or assistant labels/i);
+  assert.match(prompt, /Do not reproduce prompt phrases like "Customer Info", "customer profiles", "High score", "Lead Score", or "AI Automated Response" as visible UI text/i);
+});
+
+test('buildGeminiRenderPrompt passes mandatory headline copy without wrapping quotation marks', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium editorial social post visual.',
+    headline: 'Qualy ile Etkili İletişim',
+    subheadline: 'Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'light',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /Headline:\s+Qualy ile Etkili İletişim/i);
+  assert.match(prompt, /Subheadline:\s+Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\./i);
+  assert.doesNotMatch(prompt, /Headline:\s+"Qualy ile Etkili İletişim"/i);
+  assert.doesNotMatch(prompt, /Subheadline:\s+"Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\."/i);
+});
+
+test('buildGeminiRenderPrompt treats prompt example labels as semantic-only when visible copy is disabled', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with status chips like hot, warm, cold around a lead card.',
+    headline: ' ',
+    subheadline: ' ',
+    cta: '',
+    includeCta: false,
+    renderText: false,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'light',
+    variationIndex: 0,
+    hasBrandReferences: true,
+  });
+
+  assert.doesNotMatch(prompt, /unless the planned prompt explicitly overrides that constraint/i);
+  assert.match(prompt, /Do not render literal words from the prompt/i);
+  assert.match(prompt, /replace it with abstract lines, neutral bars, dots, icons, or unreadable placeholders/i);
+  assert.match(prompt, /If any readable text survives, it must be in Turkish only/i);
+});
+
+test('buildGeminiRenderPrompt does not ask for standalone logo placement even when brand references exist', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with one subtle corner logo.',
+    headline: 'Yeni blog yazısı',
+    subheadline: 'WhatsApp otomasyonunu tek karede anlat.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    hasBrandReferences: true,
+  });
+
+  assert.match(prompt, /Do not add a standalone decorative logo placement/i);
+  assert.match(prompt, /If the product ui naturally includes a brand mark, it may remain there without becoming a focal point/i);
+  assert.doesNotMatch(prompt, /safe area/i);
+  assert.doesNotMatch(prompt, /5-8%/i);
+});
+
+test('buildGeminiRenderPrompt keeps attached brand references as optional correctness guides, not corner signatures', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with one subtle corner logo.',
+    headline: 'Yeni blog yazısı',
+    subheadline: 'WhatsApp otomasyonunu tek karede anlat.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    hasBrandReferences: true,
+  });
+
+  assert.match(prompt, /Do not add a standalone decorative logo placement/i);
+  assert.match(prompt, /Use attached official brand references only as correctness guides for any natural in-product brand mark/i);
+  assert.match(prompt, /Do not isolate, badge, enlarge, or repeat brand marks/i);
+});
+
+test('buildGeminiRenderPrompt explicitly forbids English ui copy when the render language is Turkish', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with cards labelled Lead extraction, Customer interaction, and automation workflow.',
+    headline: 'Önemli sohbetleri önce gör',
+    subheadline: 'Yapay zeka en doğru sinyali öne çıkarsın.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /Never render English words from the planned prompt, internal reasoning, or example ui labels/i);
+  assert.match(prompt, /If a supporting label is unavoidable, translate it into Turkish or make it unreadable/i);
+});
+
+test('buildGeminiRenderPrompt keeps an explicitly requested single channel locked during render', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual about AI reply to Instagram with one focused DM panel.',
+    headline: 'Instagram mesajlarına hızlı yanıt',
+    subheadline: 'Yapay zeka doğru cevabı ilk anda hazırlasın.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    campaignType: 'Product overview',
+    campaignFocus: 'AI reply to Instagram',
+    customInstruction: 'Keep the composition centered on Instagram DM handling.',
+  });
+
+  assert.match(prompt, /CHANNEL PRIORITY:/i);
+  assert.match(prompt, /Requested channels:\s+Instagram/i);
+  assert.match(prompt, /Do not swap the requested channel focus to WhatsApp, Messenger, Telegram, or other surrounding product channels/i);
+  assert.match(prompt, /If one channel is explicitly requested, keep the render centered on that channel unless the brief explicitly asks for a multi-channel story/i);
+});
+
+test('buildGeminiRenderPrompt lets light themes stay airy while adding a restrained tint and channel accent', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual about AI reply to Instagram with one focused DM panel.',
+    headline: 'Instagram mesajlarını hızlandır',
+    subheadline: 'Yapay zeka ilk cevabı daha hızlı hazırlasın.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'light',
+    variationIndex: 0,
+    campaignType: 'Product overview',
+    campaignFocus: 'AI reply to Instagram',
+  });
+
+  assert.match(prompt, /faint cool-blue, lilac, blush, or mint haze/i);
+  assert.match(prompt, /Do not fall back to a flat plain white canvas/i);
+  assert.match(prompt, /Allow one small Instagram gradient icon or badge near the focal area/i);
+  assert.match(prompt, /faint rose-lilac-peach tint behind that zone/i);
+});
+
+test('buildGeminiRenderPrompt treats uploaded UI images as source material instead of a passive style reference', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with one dominant product crop.',
+    headline: 'Yeni özellik',
+    subheadline: 'Önemli capability daha görünür olsun.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    referenceImage: 'data:image/png;base64,REFERENCE',
+  });
+
+  assert.match(prompt, /Treat the uploaded image as primary UI source material, not a passive style reference/i);
+  assert.match(prompt, /Keep recognizable panel geometry, spacing, and hierarchy from the reference/i);
+  assert.match(prompt, /Use 1-3 focused crops or panels from the reference/i);
+  assert.match(prompt, /Do not copy its exact readable text, product copy, or layout verbatim/i);
+});
+
+test('buildGeminiRenderPrompt keeps uploaded reference ui crisp instead of reinterpreting it as glassy abstraction', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with one dominant product crop.',
+    headline: 'Yeni özellik',
+    subheadline: 'Önemli capability daha görünür olsun.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    referenceImage: 'data:image/png;base64,REFERENCE',
+  });
+
+  assert.match(prompt, /Treat the uploaded image as primary UI source material, not a passive style reference/i);
+  assert.match(prompt, /Keep recognizable panel geometry, spacing, and hierarchy from the reference/i);
+  assert.match(prompt, /If the reference contains white or light surfaces, keep them crisp, bright, and solid/i);
+  assert.match(prompt, /Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard/i);
+  assert.match(prompt, /Use 1-3 focused crops or panels from the reference/i);
+  assert.match(prompt, /Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift/i);
+  assert.match(prompt, /Never preserve real names, usernames, initials, avatar photos, or face crops from the reference/i);
+  assert.match(prompt, /Blur, simplify, or regenerate avatars into generic fictional profile markers/i);
+  assert.match(prompt, /If a tiny identity label survives, replace it with a fictional localized placeholder or make it unreadable/i);
+});

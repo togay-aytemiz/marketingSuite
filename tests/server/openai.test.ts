@@ -16,6 +16,7 @@ import {
   enforceTurkishMarketingTerminology,
   extractBlogImageSlotIds,
   generateBlogPost,
+  generateSocialPostPromptPlan,
   generateVisualPromptPlan,
   regenerateBlogTitles,
   generateTopicIdeas,
@@ -354,6 +355,307 @@ test('generateVisualPromptPlan forwards campaign intent and custom instructions 
     assert.match(prompts[0] || '', /Do not frame this as a feature announcement/i);
     assert.match(prompts[0] || '', /NON-NEGOTIABLE CUSTOM INSTRUCTIONS:/);
     assert.match(prompts[0] || '', /Use an angled composition and avoid any device mockup\./);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateSocialPostPromptPlan requests a Gemini-ready prompt for social page posts', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini prompt for a premium Instagram social post visual.',
+                headline: 'Yeni özellik, daha net',
+                subheadline: 'Önemli konuşmaları tek bakışta öne çıkar.',
+                styleName: 'Social Post System',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateSocialPostPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      platform: 'Instagram',
+      theme: 'dark',
+      category: 'new_feature',
+      language: 'TR',
+      focus: 'AI automatically tagging conversations',
+      blogContent: '',
+      extraInstruction: 'Use floating tags around the main card.',
+      variationIndex: 1,
+    });
+
+    assert.equal(result?.prompt, 'Gemini prompt for a premium Instagram social post visual.');
+    assert.equal(result?.headline, 'Yeni özellik, daha net');
+    assert.equal(result?.subheadline, 'Önemli konuşmaları tek bakışta öne çıkar.');
+    assert.match(prompts[0] || '', /Create a modern SaaS product marketing visual/i);
+    assert.match(prompts[0] || '', /white haze \+ soft chrome bloom/i);
+    assert.match(prompts[0] || '', /Platform:\s+Instagram/i);
+    assert.match(prompts[0] || '', /Theme Mode:\s+dark/i);
+    assert.match(prompts[0] || '', /Category:\s+Feature announcement/i);
+    assert.match(prompts[0] || '', /Copy Language:\s+Turkish/i);
+    assert.match(prompts[0] || '', /FOCUS:\s+AI automatically tagging conversations/i);
+    assert.match(prompts[0] || '', /If focus is provided, the headline and subheadline must stay anchored to that focus/i);
+    assert.match(prompts[0] || '', /Treat focus as the primary campaign angle for visible copy, not as a literal phrase to repeat word-for-word/i);
+    assert.match(prompts[0] || '', /Do not let background product context, project naming, or dominant channel references override the user-provided focus/i);
+    assert.match(prompts[0] || '', /Do not plan standalone decorative logo placements or make the composition revolve around a logo/i);
+    assert.match(prompts[0] || '', /If the product ui naturally contains a brand mark, it may appear there, but it should stay non-focal/i);
+    assert.match(prompts[0] || '', /VARIATION DIRECTION:/i);
+    assert.match(prompts[0] || '', /headline/i);
+    assert.match(prompts[0] || '', /Return JSON only/i);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateSocialPostPromptPlan tells the planner to keep focus as the main copy angle over background context', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini prompt for a premium Instagram social post visual.',
+                headline: 'WhatsApp Yapay Zeka ile İş Akışınızı Geliştirin',
+                subheadline: 'İşletmeniz için otomasyon ve entegrasyon çözümleri',
+                styleName: 'Social Post System',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateSocialPostPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      platform: 'Instagram',
+      theme: 'light',
+      category: 'product_overview',
+      language: 'TR',
+      focus: 'AI reply for Instagram',
+      blogContent: '',
+      extraInstruction: '',
+      variationIndex: 0,
+    });
+
+    assert.match(prompts[0] || '', /Treat this focus as the primary campaign angle for both copy and composition/i);
+    assert.match(prompts[0] || '', /Use product context, PRD\/ROADMAP context, and local codebase reality only to validate or enrich that angle/i);
+    assert.match(prompts[0] || '', /Do not default to broader product naming, project titles, or dominant channel wording from background context when the focus is narrower/i);
+    assert.match(prompts[0] || '', /Interpret the focus into polished marketing copy rather than echoing it verbatim unless it is already clean headline language/i);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateSocialPostPromptPlan strips wrapping quotation marks from planned lockup copy', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async () => {
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini prompt for a premium Instagram social post visual.',
+                headline: '“Qualy ile Etkili İletişim”',
+                subheadline: '"Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin."',
+                styleName: 'Social Post System',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    const result = await generateSocialPostPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      platform: 'Instagram',
+      theme: 'light',
+      category: 'product_overview',
+      language: 'TR',
+      focus: 'AI can score leads',
+      blogContent: '',
+      extraInstruction: '',
+      variationIndex: 0,
+    });
+
+    assert.equal(result?.headline, 'Qualy ile Etkili İletişim');
+    assert.equal(result?.subheadline, 'Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin.');
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateSocialPostPromptPlan lets AI decide focus when the user leaves the field blank', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini prompt for a premium LinkedIn social post visual.',
+                headline: 'AI lead qualification',
+                subheadline: 'Read the strongest signals faster.',
+                styleName: 'Social Post System',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await generateSocialPostPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      platform: 'LinkedIn',
+      theme: 'light',
+      category: 'blog',
+      language: 'EN',
+      focus: '',
+      blogContent: 'Article title: AI lead qualification playbook. Body: explain scoring, routing, and sales handoff.',
+      extraInstruction: '',
+      variationIndex: 0,
+    });
+
+    assert.match(prompts[0] || '', /FOCUS:\s+AI should decide the strongest focus/i);
+    assert.match(prompts[0] || '', /VISUAL HINT:\s+AI should decide the clearest visual hint/i);
+    assert.match(prompts[0] || '', /Copy Language:\s+English/i);
+    assert.match(prompts[0] || '', /BLOG CONTENT CONTEXT:/i);
+    assert.match(prompts[0] || '', /AI lead qualification playbook/i);
+  } finally {
+    global.fetch = originalFetch;
+    process.env.OPENAI_API_KEY = originalOpenAiKey;
+  }
+});
+
+test('generateSocialPostPromptPlan preserves white source ui surfaces when a reference image exists', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const prompts: string[] = [];
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content: JSON.stringify({
+                prompt: 'Gemini prompt for a premium Instagram social post visual.',
+                headline: 'Call notes, daha net',
+                subheadline: 'Özet sekmesini ilk bakışta görün.',
+                styleName: 'Social Post System',
+              }),
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await generateSocialPostPromptPlan({
+      productName: 'Qualy',
+      featureName: 'AI Inbox',
+      description: 'Unified inbox for support and sales teams.',
+      platform: 'Instagram',
+      theme: 'dark',
+      category: 'new_feature',
+      language: 'TR',
+      focus: 'Özet sekmesini öne çıkar',
+      blogContent: '',
+      extraInstruction: '',
+      variationIndex: 0,
+      hasReferenceImage: true,
+    } as any);
+
+    assert.match(prompts[0] || '', /Treat the uploaded reference UI as the primary product surface source/i);
+    assert.match(prompts[0] || '', /Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass/i);
+    assert.match(prompts[0] || '', /Do not reinterpret the source as a dark fantasy dashboard or generic glass cards/i);
+    assert.match(prompts[0] || '', /Never preserve personal names, usernames, initials, or profile photos from the reference/i);
+    assert.match(prompts[0] || '', /Blur, simplify, or regenerate avatars into generic fictional profile markers/i);
   } finally {
     global.fetch = originalFetch;
     process.env.OPENAI_API_KEY = originalOpenAiKey;

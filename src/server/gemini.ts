@@ -700,13 +700,23 @@ export const generateFinalVisual = async (
   previousImage?: string,
   userComment?: string,
   referenceImage?: string | null,
-  plannedPrompt?: string | null
+  plannedPrompt?: string | null,
+  renderText: boolean = true,
+  attachBrandReferences: boolean = true,
+  brandReferenceTheme: VisualTheme = theme,
+  brandReferenceKind: 'logo' | 'icon' | 'any' = 'any',
+  requireBrandPlacement: boolean = false
 ) => {
   const ai = getAiInstance();
   if (!ai) return null;
 
   const brandName = resolveVisualBrandName(productName);
-  const brandReferenceImages = await loadVisualBrandReferenceImages();
+  const brandReferenceImages = attachBrandReferences
+    ? await loadVisualBrandReferenceImages({
+        theme: brandReferenceTheme,
+        kind: brandReferenceKind,
+      })
+    : [];
   const parts: any[] = buildVisualReferenceParts({
     images,
     previousImage,
@@ -721,6 +731,7 @@ export const generateFinalVisual = async (
     subheadline,
     cta,
     includeCta,
+    renderText,
     language,
     images,
     featureName,
@@ -734,6 +745,7 @@ export const generateFinalVisual = async (
     previousImage,
     userComment,
     referenceImage,
+    requireBrandPlacement,
   });
 
   parts.push({ text: prompt });

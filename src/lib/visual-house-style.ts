@@ -108,7 +108,9 @@ THEME DIRECTION:
 - Requested Theme Mode: ${theme}
 - Resolved Theme Variant: light
 - Keep the overall frame light-dominant, airy, and bright.
-- Use pale neutrals, soft paper tones, off-white surfaces, or restrained daylight treatment.
+- Use pale neutrals, soft paper tones, off-white surfaces, and a faint cool-blue, lilac, blush, or mint haze.
+- Add a soft editorial tint field or gradient paper wash behind the hero area when the frame needs more life.
+- Do not fall back to a flat plain white canvas.
 - Do not drift into dark-mode backgrounds or night palettes.
 `.trim();
   }

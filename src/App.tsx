@@ -1,14 +1,29 @@
 import React, { useState, useEffect } from 'react';
 import { Sidebar } from './components/Sidebar';
+import { SocialPostSidebar } from './components/SocialPostSidebar';
 import { VisualPreview } from './components/VisualPreview';
+import { SocialPostPreview } from './components/SocialPostPreview';
 import { BlogPreview } from './components/BlogPreview';
 import { SettingsModal } from './components/SettingsModal';
 import { IntegrationSettingsModal } from './components/SanitySettingsModal';
 import { AppState } from './types';
 import { buildPersistedAppState, hydrateAppState } from './lib/app-state';
-import { extractColorPalette, generateMarketingCopy, generateFinalVisual, planVisualPrompt } from './services/gemini';
+import {
+  extractColorPalette,
+  generateMarketingCopy,
+  generateFinalVisual,
+  generateSocialPostVisual,
+  planSocialPostPrompt,
+  planVisualPrompt,
+} from './services/gemini';
+import {
+  buildFallbackSocialPostLockup,
+  resolveSocialPostAspectRatio,
+  resolveSocialPostFocus,
+  supportsSocialPostReferenceImage,
+} from './lib/social-post-prompt';
 import { fitGeneratedVisualToAspectRatio } from './lib/visual-aspect-ratio';
-import { Settings, PenTool, Image as ImageIcon, Database } from 'lucide-react';
+import { Settings, PenTool, Image as ImageIcon, Database, LayoutTemplate } from 'lucide-react';
 import {
   checkIntegrationEndpoints,
   defaultIntegrationStatus,
@@ -33,6 +48,7 @@ function MainApp() {
 
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState<boolean[]>([false, false, false, false]);
+  const [socialPostGeneratingStatus, setSocialPostGeneratingStatus] = useState<boolean[]>([false, false, false, false]);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isIntegrationSettingsOpen, setIsIntegrationSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -99,6 +115,11 @@ function MainApp() {
   const handleGenerate = async () => {
     if (state.activeModule === 'blog') {
       setTriggerBlogGen(prev => prev + 1);
+      return;
+    }
+
+    if (state.activeModule === 'socialPosts') {
+      await handleGenerateSocialPosts();
       return;
     }
 
@@ -224,6 +245,103 @@ function MainApp() {
     setIsGenerating(false);
   };
 
+  const handleGenerateSocialPosts = async () => {
+    setIsGenerating(true);
+    setSocialPostGeneratingStatus([true, true, true, true]);
+    setState((prev) => ({
+      ...prev,
+      socialPostHeadlinePlans: [null, null, null, null],
+      socialPostSubheadlinePlans: [null, null, null, null],
+      socialPostPromptPlans: [null, null, null, null],
+      socialPostFinalVisuals: [null, null, null, null],
+    }));
+
+    const aspectRatio = resolveSocialPostAspectRatio(state.socialPostPlatform);
+
+    for (let i = 0; i < 4; i += 1) {
+      const focus = resolveSocialPostFocus(
+        state.socialPostFocus
+      );
+      const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
+        ? state.socialPostReferenceImage
+        : null;
+      const plannedPrompt = await planSocialPostPrompt({
+        productName: state.productName,
+        featureName: state.featureName,
+        description: state.description,
+        platform: state.socialPostPlatform,
+        theme: state.socialPostTheme,
+        category: state.socialPostCategory,
+        language: state.socialPostLanguage,
+        focus,
+        blogContent: state.socialPostBlogContent,
+        extraInstruction: '',
+        variationIndex: i,
+        hasReferenceImage: Boolean(socialPostReferenceImage),
+      });
+      const fallbackLockup = buildFallbackSocialPostLockup({
+        category: state.socialPostCategory,
+        language: state.socialPostLanguage,
+        productName: state.productName,
+        featureName: state.featureName,
+      });
+      const nextHeadline = plannedPrompt?.headline?.trim() || fallbackLockup.headline;
+      const nextSubheadline = plannedPrompt?.subheadline?.trim() || fallbackLockup.subheadline;
+      const nextPrompt = plannedPrompt?.prompt || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
+
+      setState((prev) => {
+        const nextHeadlines = [...prev.socialPostHeadlinePlans];
+        const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
+        const nextPlans = [...prev.socialPostPromptPlans];
+        nextHeadlines[i] = nextHeadline;
+        nextSubheadlines[i] = nextSubheadline;
+        nextPlans[i] = nextPrompt;
+        return {
+          ...prev,
+          socialPostHeadlinePlans: nextHeadlines,
+          socialPostSubheadlinePlans: nextSubheadlines,
+          socialPostPromptPlans: nextPlans,
+        };
+      });
+
+      const visual = await generateSocialPostVisual({
+        productName: state.productName,
+        featureName: state.featureName,
+        description: state.description,
+        platform: state.socialPostPlatform,
+        aspectRatio,
+        theme: state.socialPostTheme,
+        language: state.socialPostLanguage,
+        plannedPrompt: nextPrompt,
+        headline: nextHeadline,
+        subheadline: nextSubheadline,
+        variationIndex: i,
+        category: state.socialPostCategory,
+        focus,
+        referenceImage: socialPostReferenceImage,
+      });
+
+      const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
+
+      setState((prev) => {
+        const nextVisuals = [...prev.socialPostFinalVisuals];
+        nextVisuals[i] = fittedVisual || visual;
+        return {
+          ...prev,
+          socialPostFinalVisuals: nextVisuals,
+        };
+      });
+
+      setSocialPostGeneratingStatus((prev) => {
+        const nextStatus = [...prev];
+        nextStatus[i] = false;
+        return nextStatus;
+      });
+    }
+
+    setIsGenerating(false);
+  };
+
   const handleRegenerate = async (index: number, comment: string) => {
     setGeneratingStatus(prev => {
       const newStatus = [...prev];
@@ -333,18 +451,126 @@ function MainApp() {
     });
   };
 
+  const handleSocialPostRegenerate = async (index: number, comment: string) => {
+    setSocialPostGeneratingStatus((prev) => {
+      const nextStatus = [...prev];
+      nextStatus[index] = true;
+      return nextStatus;
+    });
+
+    const aspectRatio = resolveSocialPostAspectRatio(state.socialPostPlatform);
+    const focus = resolveSocialPostFocus(
+      state.socialPostFocus
+    );
+    const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
+      ? state.socialPostReferenceImage
+      : null;
+    const plannedPlan = state.socialPostPromptPlans[index] && state.socialPostHeadlinePlans[index]
+      ? {
+          prompt: state.socialPostPromptPlans[index],
+          headline: state.socialPostHeadlinePlans[index],
+          subheadline: state.socialPostSubheadlinePlans[index],
+        }
+      : await planSocialPostPrompt({
+        productName: state.productName,
+        featureName: state.featureName,
+        description: state.description,
+        platform: state.socialPostPlatform,
+        theme: state.socialPostTheme,
+        category: state.socialPostCategory,
+        language: state.socialPostLanguage,
+        focus,
+        blogContent: state.socialPostBlogContent,
+        extraInstruction: '',
+        variationIndex: index,
+        hasReferenceImage: Boolean(socialPostReferenceImage),
+      });
+    const fallbackLockup = buildFallbackSocialPostLockup({
+      category: state.socialPostCategory,
+      language: state.socialPostLanguage,
+      productName: state.productName,
+      featureName: state.featureName,
+    });
+    const plannedPrompt = plannedPlan?.prompt?.trim()
+      || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
+    const plannedHeadline = plannedPlan?.headline?.trim() || fallbackLockup.headline;
+    const plannedSubheadline = plannedPlan?.subheadline?.trim() || fallbackLockup.subheadline;
+
+    setState((prev) => {
+      const nextHeadlines = [...prev.socialPostHeadlinePlans];
+      const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
+      const nextPlans = [...prev.socialPostPromptPlans];
+      nextHeadlines[index] = plannedHeadline;
+      nextSubheadlines[index] = plannedSubheadline;
+      nextPlans[index] = plannedPrompt;
+      return {
+        ...prev,
+        socialPostHeadlinePlans: nextHeadlines,
+        socialPostSubheadlinePlans: nextSubheadlines,
+        socialPostPromptPlans: nextPlans,
+      };
+    });
+
+    const visual = await generateSocialPostVisual({
+      productName: state.productName,
+      featureName: state.featureName,
+      description: state.description,
+      platform: state.socialPostPlatform,
+      aspectRatio,
+      theme: state.socialPostTheme,
+      language: state.socialPostLanguage,
+      plannedPrompt,
+      headline: plannedHeadline,
+      subheadline: plannedSubheadline,
+      variationIndex: index,
+      category: state.socialPostCategory,
+      focus,
+      referenceImage: socialPostReferenceImage,
+      previousImage: state.socialPostFinalVisuals[index] || undefined,
+      userComment: comment,
+    });
+    const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
+
+    setState((prev) => {
+      const nextVisuals = [...prev.socialPostFinalVisuals];
+      nextVisuals[index] = fittedVisual || visual;
+      return {
+        ...prev,
+        socialPostFinalVisuals: nextVisuals,
+      };
+    });
+
+    setSocialPostGeneratingStatus((prev) => {
+      const nextStatus = [...prev];
+      nextStatus[index] = false;
+      return nextStatus;
+    });
+  };
+
   return (
     <div className="flex h-screen bg-zinc-50 overflow-hidden font-sans">
-      <Sidebar 
-        state={state} 
-        setState={setState} 
-        onGenerate={handleGenerate} 
-        isGenerating={isGenerating} 
-        onOpenSettings={() => setIsSettingsOpen(true)}
-        isSidebarOpen={isSidebarOpen}
-        setIsSidebarOpen={setIsSidebarOpen}
-        integrationStatus={integrationStatus}
-      />
+      {state.activeModule === 'socialPosts' ? (
+        <SocialPostSidebar
+          state={state}
+          setState={setState}
+          onGenerate={handleGenerate}
+          isGenerating={isGenerating}
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
+          integrationStatus={integrationStatus}
+        />
+      ) : (
+        <Sidebar 
+          state={state} 
+          setState={setState} 
+          onGenerate={handleGenerate} 
+          isGenerating={isGenerating} 
+          onOpenSettings={() => setIsSettingsOpen(true)}
+          isSidebarOpen={isSidebarOpen}
+          setIsSidebarOpen={setIsSidebarOpen}
+          integrationStatus={integrationStatus}
+        />
+      )}
       
       <div className="flex flex-col flex-1 overflow-hidden">
         {/* Top Navigation */}
@@ -358,12 +584,23 @@ function MainApp() {
                   ? 'bg-zinc-100 text-zinc-900' 
                   : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50'
               }`}
-            >
-              <ImageIcon className="w-4 h-4" />
-              Visual Creator
-            </button>
-            <button
-              onClick={() => setState(prev => ({ ...prev, activeModule: 'blog' }))}
+              >
+                <ImageIcon className="w-4 h-4" />
+                Visual Creator
+              </button>
+              <button
+                onClick={() => setState(prev => ({ ...prev, activeModule: 'socialPosts' }))}
+                className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
+                  state.activeModule === 'socialPosts' 
+                    ? 'bg-zinc-100 text-zinc-900' 
+                    : 'text-zinc-500 hover:text-zinc-900 hover:bg-zinc-50'
+                }`}
+              >
+                <LayoutTemplate className="w-4 h-4" />
+                Social Posts
+              </button>
+              <button
+                onClick={() => setState(prev => ({ ...prev, activeModule: 'blog' }))}
               className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                 state.activeModule === 'blog' 
                   ? 'bg-zinc-100 text-zinc-900' 
@@ -434,6 +671,38 @@ function MainApp() {
                     </div>
                     <h3 className="text-base font-semibold text-zinc-900 tracking-tight">No visuals generated</h3>
                     <p className="mt-2 text-sm text-zinc-500 leading-relaxed">Get started by setting your Product Context and clicking generate.</p>
+                  </div>
+                </div>
+              )}
+            </div>
+          ) : state.activeModule === 'socialPosts' ? (
+            <div className="p-6 lg:p-8 w-full h-full">
+              {(isGenerating || state.socialPostFinalVisuals.some((visual) => visual !== null)) ? (
+                <div className="grid grid-cols-1 xl:grid-cols-2 gap-10 w-full">
+                  {Array.from({ length: 4 }).map((_, i) => (
+                    <SocialPostPreview
+                      key={i}
+                      platform={state.socialPostPlatform}
+                      category={state.socialPostCategory}
+                      language={state.socialPostLanguage}
+                      visual={state.socialPostFinalVisuals[i]}
+                      variationIndex={i}
+                      aspectRatio={resolveSocialPostAspectRatio(state.socialPostPlatform)}
+                      isGenerating={socialPostGeneratingStatus[i]}
+                      onRegenerate={handleSocialPostRegenerate}
+                    />
+                  ))}
+                </div>
+              ) : (
+                <div className="w-full h-full min-h-[500px] border-2 border-dashed border-zinc-200 rounded-2xl flex items-center justify-center bg-white shadow-sm">
+                  <div className="text-center max-w-md px-6">
+                    <div className="w-16 h-16 bg-zinc-50 rounded-2xl flex items-center justify-center mx-auto mb-4 border border-zinc-100">
+                      <LayoutTemplate className="h-8 w-8 text-zinc-400" />
+                    </div>
+                    <h3 className="text-base font-semibold text-zinc-900 tracking-tight">No social posts generated</h3>
+                    <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
+                      OpenAI will first plan 4 Gemini-ready prompts using product context, PRD/ROADMAP notes, and local product reality. Gemini then renders each social post visual sequentially.
+                    </p>
                   </div>
                 </div>
               )}

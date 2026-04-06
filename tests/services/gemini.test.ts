@@ -1,7 +1,14 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 
-import { analyzeSeoForBlog, generateCopyIdeas, planVisualPrompt, regenerateBlogTitles } from '../../src/services/gemini';
+import {
+  analyzeSeoForBlog,
+  generateCopyIdeas,
+  generateSocialPostVisual,
+  planSocialPostPrompt,
+  planVisualPrompt,
+  regenerateBlogTitles,
+} from '../../src/services/gemini';
 
 test('analyzeSeoForBlog sends image alt-text fields to the backend', async () => {
   const originalFetch = global.fetch;
@@ -211,6 +218,117 @@ test('planVisualPrompt sends the planner payload to the backend', async () => {
   assert.equal(payload?.hasScreenshots, true);
   assert.equal(payload?.hasReferenceImage, true);
   assert.equal(payload?.userComment, 'Reduce clutter');
+
+  global.fetch = originalFetch;
+});
+
+test('planSocialPostPrompt sends theme, category, and per-image focus to the backend', async () => {
+  const originalFetch = global.fetch;
+  let payload: Record<string, unknown> | null = null;
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    payload = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+
+    return new Response(
+      JSON.stringify({
+        result: {
+          prompt: 'Gemini social post render prompt',
+          headline: 'Yapay zeka skoru öne çıkarır',
+          subheadline: 'Doğru sohbeti önce görün.',
+          styleName: 'Social Post System',
+        },
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await planSocialPostPrompt({
+    productName: 'Qualy',
+    featureName: 'AI Inbox',
+    description: 'Unified inbox for support and sales teams.',
+    platform: 'Instagram',
+    theme: 'dark',
+    category: 'new_feature',
+    language: 'TR',
+    focus: 'AI automatically tagging conversations',
+    blogContent: '',
+    extraInstruction: 'Use floating tags around the hero card.',
+    variationIndex: 2,
+    hasReferenceImage: true,
+  });
+
+  assert.deepEqual(result, {
+    prompt: 'Gemini social post render prompt',
+    headline: 'Yapay zeka skoru öne çıkarır',
+    subheadline: 'Doğru sohbeti önce görün.',
+    styleName: 'Social Post System',
+  });
+  assert.equal(payload?.platform, 'Instagram');
+  assert.equal(payload?.theme, 'dark');
+  assert.equal(payload?.category, 'new_feature');
+  assert.equal(payload?.language, 'TR');
+  assert.equal(payload?.focus, 'AI automatically tagging conversations');
+  assert.equal(payload?.blogContent, '');
+  assert.equal(payload?.extraInstruction, 'Use floating tags around the hero card.');
+  assert.equal(payload?.variationIndex, 2);
+  assert.equal(payload?.hasReferenceImage, true);
+
+  global.fetch = originalFetch;
+});
+
+test('generateSocialPostVisual renders planned headline copy while keeping brand references optional and non-forcing', async () => {
+  const originalFetch = global.fetch;
+  let payload: Record<string, unknown> | null = null;
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    payload = JSON.parse(String(init?.body || '{}')) as Record<string, unknown>;
+
+    return new Response(
+      JSON.stringify({
+        result: 'data:image/png;base64,social-post',
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  const result = await generateSocialPostVisual({
+    productName: 'Qualy',
+    featureName: 'AI Inbox',
+    description: 'Unified inbox for support and sales teams.',
+    platform: 'LinkedIn',
+    aspectRatio: '1:1',
+    theme: 'light',
+    language: 'TR',
+    plannedPrompt: 'Gemini social post render prompt',
+    headline: 'Önemli sohbetleri önce gör',
+    subheadline: 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.',
+    referenceImage: 'data:image/png;base64,reference',
+    previousImage: 'data:image/png;base64,previous',
+    userComment: 'Reduce the glow and simplify the card stack.',
+  });
+
+  assert.equal(result, 'data:image/png;base64,social-post');
+  assert.equal(payload?.platform, 'LinkedIn');
+  assert.equal(payload?.aspectRatio, '1:1');
+  assert.equal(payload?.theme, 'light');
+  assert.equal(payload?.language, 'TR');
+  assert.equal(payload?.plannedPrompt, 'Gemini social post render prompt');
+  assert.equal(payload?.headline, 'Önemli sohbetleri önce gör');
+  assert.equal(payload?.subheadline, 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.');
+  assert.equal(payload?.referenceImage, 'data:image/png;base64,reference');
+  assert.equal(payload?.renderText, true);
+  assert.equal(payload?.includeCta, false);
+  assert.equal(payload?.attachBrandReferences, true);
+  assert.equal(payload?.brandReferenceTheme, 'light');
+  assert.equal(payload?.brandReferenceKind, 'logo');
+  assert.equal(payload?.requireBrandPlacement, false);
+  assert.equal(payload?.userComment, 'Reduce the glow and simplify the card stack.');
 
   global.fetch = originalFetch;
 });

@@ -1,4 +1,5 @@
 import { getSingleOutputLanguageName } from './app-language';
+import { detectRequestedChannels, getRequestedChannelAccentHints } from './channel-focus';
 import {
   buildVisualBrandBlock,
   resolveVisualBrandName,
@@ -205,9 +206,24 @@ VISUAL SOURCE CONTEXT:
     return `
 VISUAL SOURCE CONTEXT:
 - Screenshot inputs are available.
-- Use the uploaded screenshot only as loose structural reference.
-- Redraw and simplify aggressively. Do not replicate dense UI, tiny labels, or dashboard clutter.
+- Treat the uploaded screenshot as the primary structural source, not loose inspiration.
+- Preserve recognizable panel geometry, spacing, and hierarchy from the source UI.
+- Simplify only dense microcopy, tiny labels, or non-essential dashboard chrome.
+- If the screenshot contains white or light surfaces, keep them crisp and solid instead of turning them into glassy abstractions.
+- Never preserve real names, usernames, or profile photos from the screenshot; blur or replace them with generic fictional markers.
 - Any visible UI text must be rendered in ${outputLanguage}.
+`.trim();
+  }
+
+  if (referenceImage) {
+    return `
+VISUAL SOURCE CONTEXT:
+- A focused reference UI is attached for this visual.
+- Treat it as the primary product surface source, not a loose style cue.
+- Preserve recognizable panel geometry, spacing, and hierarchy from that source.
+- Keep white or light surfaces crisp, solid, and product-real.
+- Use one localized accent or contrast lift to emphasize the main focus instead of restyling the whole frame.
+- Never preserve real names, usernames, or profile photos from that source; blur or replace them with generic fictional markers.
 `.trim();
   }
 
@@ -252,6 +268,8 @@ function buildReferenceInstruction(referenceImage?: string | null) {
 REFERENCE IMAGE:
 - A style reference image is attached.
 - Borrow its composition, pacing, and editorial feel without copying the exact text, product, or layout verbatim.
+- Reinterpret it into a cleaner marketing composition instead of tracing it literally.
+- Convert recognizable fragments into simplified shapes, crops, highlights, or UI cues that fit the final concept.
 `.trim();
 }
 
@@ -269,6 +287,48 @@ USER FEEDBACK TO APPLY:
 `.trim();
 }
 
+function buildChannelPriorityBlock(requestedChannels: string[]) {
+  if (requestedChannels.length === 0) {
+    return '';
+  }
+
+  const otherChannels = ['WhatsApp', 'Instagram', 'Messenger', 'Telegram'].filter(
+    (channel) => !requestedChannels.includes(channel)
+  );
+  const otherChannelList = otherChannels.join(', ');
+
+  if (requestedChannels.length === 1) {
+    return `
+CHANNEL PRIORITY:
+- Requested channels: ${requestedChannels[0]}
+- Treat this explicit channel request as higher priority than surrounding product-context channel mentions.
+- Do not swap the requested channel focus to ${otherChannelList}, or other surrounding product channels.
+- If one channel is explicitly requested, keep the render centered on that channel unless the brief explicitly asks for a multi-channel story.
+`.trim();
+  }
+
+  return `
+CHANNEL PRIORITY:
+- Requested channels: ${requestedChannels.join(', ')}
+- Keep these requested channels central even if other channels appear elsewhere in the brief or planned prompt.
+- Do not introduce extra channels outside this requested set unless the brief explicitly asks for a broader multi-channel story.
+`.trim();
+}
+
+function buildChannelAccentBlock(requestedChannels: string[]) {
+  const hints = getRequestedChannelAccentHints(requestedChannels as Array<any>);
+  if (hints.length === 0) {
+    return '';
+  }
+
+  return `
+CHANNEL ACCENTS:
+- Keep any native-color channel accents small, crisp, and localized near the requested focus.
+- Use them as a restrained spark, not a colorful redesign.
+- ${hints.join('\n- ')}
+`.trim();
+}
+
 function buildMandatoryCopyRule(includeCta: boolean) {
   return includeCta
     ? 'The prompt must explicitly keep the visible copy limited to the provided headline, subheadline, and CTA.'
@@ -279,8 +339,8 @@ function buildMandatoryCopyBlock(headline: string, subheadline: string, cta: str
   if (!includeCta) {
     return `
 MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
-Headline: "${headline || '[Auto-generated headline]'}"
-Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+Headline: ${headline || '[Auto-generated headline]'}
+Subheadline: ${subheadline || '[Auto-generated subheadline]'}
 CTA: none
 
 - CTA is disabled for this visual.
@@ -291,9 +351,9 @@ CTA: none
 
   return `
 MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
-Headline: "${headline || '[Auto-generated headline]'}"
-Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
-Call to Action (CTA) Button: "${cta || '[Auto-generated CTA]'}"
+Headline: ${headline || '[Auto-generated headline]'}
+Subheadline: ${subheadline || '[Auto-generated subheadline]'}
+Call to Action (CTA) Button: ${cta || '[Auto-generated CTA]'}
 `.trim();
 }
 
@@ -301,8 +361,8 @@ function buildRenderCopyBlock(headline: string, subheadline: string, cta: string
   if (!includeCta) {
     return `
 MANDATORY TEXT TO RENDER:
-Headline: "${headline || '[Auto-generated headline]'}"
-Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
+Headline: ${headline || '[Auto-generated headline]'}
+Subheadline: ${subheadline || '[Auto-generated subheadline]'}
 CTA: none
 
 - CTA is disabled for this visual.
@@ -313,9 +373,21 @@ CTA: none
 
   return `
 MANDATORY TEXT TO RENDER:
-Headline: "${headline || '[Auto-generated headline]'}"
-Subheadline: "${subheadline || '[Auto-generated subheadline]'}"
-Call to Action (CTA) Button: "${cta || '[Auto-generated CTA]'}"
+Headline: ${headline || '[Auto-generated headline]'}
+Subheadline: ${subheadline || '[Auto-generated subheadline]'}
+Call to Action (CTA) Button: ${cta || '[Auto-generated CTA]'}
+`.trim();
+}
+
+function buildNoVisibleCopyBlock(outputLanguage: string) {
+  return `
+NO VISIBLE COPY:
+- Do not render any headline, subheadline, CTA, paragraph text, numbers, UI labels, status chips, button copy, tooltip copy, or metric pills.
+- Do not render literal words from the prompt. Treat quoted terms, focus phrases, example labels, chip names, status names, and taxonomy words as semantic guidance only.
+- If a UI element needs textual structure, replace it with abstract lines, neutral bars, dots, icons, or unreadable placeholders.
+- Do not add standalone logos or decorative brand marks.
+- If any readable text survives, it must be in ${outputLanguage} only.
+- Leave clean composition space where editorial copy could be added later, but keep the generated image itself text-free.
 `.trim();
 }
 
@@ -443,6 +515,7 @@ export interface GeminiRenderPromptInput {
   subheadline: string;
   cta: string;
   includeCta?: boolean;
+  renderText?: boolean;
   language: string;
   images: string[];
   featureName: string;
@@ -456,12 +529,14 @@ export interface GeminiRenderPromptInput {
   previousImage?: string;
   userComment?: string;
   referenceImage?: string | null;
+  requireBrandPlacement?: boolean;
 }
 
 export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
   const outputLanguage = getSingleOutputLanguageName(input.language);
   const brandName = resolveVisualBrandName(input.brandName);
   const variationIndex = input.variationIndex ?? 0;
+  const renderText = input.renderText ?? true;
   const normalizedPlannedPrompt = String(input.plannedPrompt || '').trim()
     || `Minimal ${VISUAL_HOUSE_STYLE.name} editorial poster for ${input.featureName || brandName || 'the product'}.`;
   const themeBlock = buildVisualThemeBlock(input.theme || 'mixed', variationIndex);
@@ -472,6 +547,15 @@ export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
     input.featureName
   );
   const customInstructionBlock = buildCustomInstructionBlock(input.customInstruction || '');
+  const requestedChannels = detectRequestedChannels([
+    input.campaignFocus || '',
+    input.customInstruction || '',
+  ]);
+  const fallbackRequestedChannels = requestedChannels.length > 0
+    ? requestedChannels
+    : detectRequestedChannels([input.plannedPrompt || '']);
+  const channelPriorityBlock = buildChannelPriorityBlock(fallbackRequestedChannels);
+  const channelAccentBlock = buildChannelAccentBlock(fallbackRequestedChannels);
 
   let assetInstruction = '';
   if (input.previousImage) {
@@ -483,9 +567,18 @@ EDIT MODE:
   } else if (input.images.length > 0) {
     assetInstruction = `
 SCREENSHOT HANDLING:
-- Use the uploaded screenshot only as loose structural reference.
-- Redraw and simplify the interface.
-- Remove dense labels, excessive chrome, and non-essential UI furniture.
+- Treat the uploaded screenshot as the primary structural source, not loose inspiration.
+- Preserve recognizable panel geometry, spacing, and hierarchy from it.
+- Simplify only dense labels, excessive chrome, and non-essential UI furniture.
+- If the screenshot contains white or light surfaces, keep them crisp and solid.
+`.trim();
+  } else if (input.referenceImage) {
+    assetInstruction = `
+REFERENCE-LED COMPOSITION:
+- Build the composition around the uploaded reference UI rather than inventing a different dashboard.
+- Preserve the strongest panel structure and simplify only non-essential microcopy or chrome.
+- Keep white or light surfaces crisp, bright, and product-real.
+- Replace source-specific people identifiers and profile photos with fictional or blurred markers.
 `.trim();
   } else {
     assetInstruction = `
@@ -497,8 +590,17 @@ NO SCREENSHOT PROVIDED:
   const referenceInstruction = input.referenceImage
     ? `
 REFERENCE IMAGE HANDLING:
-- Use the uploaded reference image for tone, composition, and pacing only.
-- Do not copy its exact text or product.
+- Treat the uploaded image as primary UI source material, not a passive style reference.
+- Keep recognizable panel geometry, spacing, and hierarchy from the reference.
+- If the reference contains white or light surfaces, keep them crisp, bright, and solid.
+- Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard.
+- Use 1-3 focused crops or panels from the reference.
+- Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift.
+- Simplify or blur dense microcopy, but keep the product surface feeling real and close to the source.
+- Never preserve real names, usernames, initials, avatar photos, or face crops from the reference.
+- Blur, simplify, or regenerate avatars into generic fictional profile markers.
+- If a tiny identity label survives, replace it with a fictional localized placeholder or make it unreadable.
+- Do not copy its exact readable text, product copy, or layout verbatim.
 `.trim()
     : '';
 
@@ -506,32 +608,63 @@ REFERENCE IMAGE HANDLING:
     ? `
 BRAND REFERENCES:
 - Official ${brandName} brand references are attached.
-- Use the ${brandName} wordmark or icon as one small, clean anchor only.
+- Do not add a standalone decorative logo placement.
+- If the product UI naturally includes a brand mark, it may remain there without becoming a focal point.
+- Use attached official brand references only as correctness guides for any natural in-product brand mark such as the ${brandName} wordmark or icon.
 - If both black or white logo variants are attached, choose the version with the clearest contrast against the local background.
-- Keep brand marks subtle and premium, never repeated, distorted, or oversized.
+- Do not isolate, badge, enlarge, or repeat brand marks.
 `.trim()
-    : '';
+      : '';
 
-  return `
-${normalizedPlannedPrompt}
+  const copyInstruction = renderText
+    ? buildRenderCopyBlock(
+        input.headline,
+        input.subheadline,
+        input.cta,
+        input.includeCta ?? true
+      )
+    : buildNoVisibleCopyBlock(outputLanguage);
 
-${buildRenderCopyBlock(
-    input.headline,
-    input.subheadline,
-    input.cta,
-    input.includeCta ?? true
-  )}
-
-RENDERER RULES:
+  const rendererRules = renderText
+    ? `RENDERER RULES:
 - All visible text must be in ${outputLanguage}.
+- Only the supplied headline, subheadline, and CTA (if enabled) may appear as readable copy.
+- Keep any supporting UI copy abstract, blurred, cropped, or unreadable.
+- Do not invent extra readable labels, status words, chip text, button text, tooltip copy, or metric pills.
+- Do not render readable UI headers, field labels, card titles, person names, score badges, percentages, list rows, profile names, or assistant labels.
+- Do not reproduce prompt phrases like "Customer Info", "customer profiles", "High score", "Lead Score", or "AI Automated Response" as visible UI text.
+- ${outputLanguage === 'Turkish' ? 'Never render English words from the planned prompt, internal reasoning, or example UI labels.' : `Never render readable words in a language other than ${outputLanguage}.`}
+- ${outputLanguage === 'Turkish' ? 'If a supporting label is unavoidable, translate it into Turkish or make it unreadable.' : `If a supporting label is unavoidable, translate it into ${outputLanguage} or make it unreadable.`}
+- Never preserve imported names, usernames, initials, or identity tags from screenshots or reference images.
+- Blur, simplify, or regenerate avatar/profile photos into generic fictional profile markers instead of keeping real faces.
+- ${outputLanguage === 'Turkish' ? 'If an identity label is unavoidable, replace it with a fictional Turkish placeholder or make it unreadable.' : `If an identity label is unavoidable, replace it with a fictional ${outputLanguage} placeholder or make it unreadable.`}
 - Do not clutter the image.
 - Preserve the ${VISUAL_HOUSE_STYLE.name} house style and keep one dominant subject only.
 - Keep supporting details sparse and subordinate.
-- No sticker piles, icon showers, generic dashboard overload, or chaotic background effects.
+- No sticker piles, icon showers, generic dashboard overload, or chaotic background effects.`
+    : `RENDERER RULES:
+- Keep the image strictly text-free. The planned prompt, focus field, reference examples, and category labels are compositional guidance only, not literal on-canvas copy.
+- Never render English placeholder words, sample chip labels, taxonomies, or status names just because they appear in the prompt.
+- Do not clutter the image.
+- Preserve the ${VISUAL_HOUSE_STYLE.name} house style and keep one dominant subject only.
+- Keep supporting details sparse and subordinate.
+- No sticker piles, icon showers, generic dashboard overload, or chaotic background effects.`;
+
+  return `
+${copyInstruction}
+
+${rendererRules}
+
+PLANNED VISUAL DIRECTION:
+- Interpret the following planned prompt semantically, not literally.
+- Do not quote it or turn its wording into readable UI labels.
+${normalizedPlannedPrompt}
 
 ${themeBlock}
 ${assetInstruction}
 ${campaignObjectiveBlock}
+${channelPriorityBlock}
+${channelAccentBlock}
 ${customInstructionBlock}
 ${referenceInstruction}
 ${brandReferenceInstruction}

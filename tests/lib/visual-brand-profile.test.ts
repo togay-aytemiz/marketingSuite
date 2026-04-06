@@ -5,6 +5,7 @@ import {
   QUALY_VISUAL_BRAND_PROFILE,
   buildVisualBrandBlock,
   getVisualBrandReferenceAssetCandidates,
+  getThemeMatchedVisualBrandReferenceAssetCandidate,
   resolveVisualBrandName,
 } from '../../src/lib/visual-brand-profile';
 import { buildGeminiRenderPrompt, buildPrompt } from '../../src/lib/visual-prompt';
@@ -34,6 +35,14 @@ test('buildVisualBrandBlock explains restrained wordmark and icon usage', () => 
   assert.match(block, /wordmark/i);
   assert.match(block, /icon/i);
   assert.match(block, /small signature/i);
+});
+
+test('picks the theme-matched logo asset with the strongest contrast', () => {
+  const darkLogo = getThemeMatchedVisualBrandReferenceAssetCandidate('dark', 'logo');
+  const lightLogo = getThemeMatchedVisualBrandReferenceAssetCandidate('light', 'logo');
+
+  assert.equal(darkLogo?.fileName, 'logo-white.png');
+  assert.equal(lightLogo?.fileName, 'logo-black.png');
 });
 
 test('buildPrompt injects Qualy brand fallback and brand system guidance', () => {
@@ -84,4 +93,26 @@ test('buildGeminiRenderPrompt adds brand reference guidance when Qualy assets ar
   assert.match(prompt, /wordmark/i);
   assert.match(prompt, /contrast/i);
   assert.match(prompt, /black or white/i);
+});
+
+test('buildGeminiRenderPrompt keeps brand references as correctness guides without asking for standalone logo placement', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual for Qualy.',
+    headline: ' ',
+    subheadline: ' ',
+    cta: '',
+    includeCta: false,
+    renderText: false,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    theme: 'dark',
+    variationIndex: 0,
+    brandName: 'Qualy',
+    hasBrandReferences: true,
+  });
+
+  assert.match(prompt, /Do not add a standalone decorative logo placement/i);
+  assert.match(prompt, /natural in-product brand mark/i);
+  assert.doesNotMatch(prompt, /single subtle official brand logo placement is allowed/i);
 });

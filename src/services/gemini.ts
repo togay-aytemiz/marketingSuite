@@ -1,5 +1,13 @@
 import { buildPrompt } from '../lib/visual-prompt';
 import type { BlogInlineImagePlan } from '../lib/blog-image-slots';
+import {
+  SOCIAL_POST_STYLE_NAME,
+  getSocialPostCategoryLabel,
+  type SocialPostCategory,
+  type SocialPostLanguage,
+  type SocialPostPlatform,
+  type SocialPostTheme,
+} from '../lib/social-post-prompt';
 import type { VisualTheme } from '../lib/visual-house-style';
 import type { BlogKeywordStrategy, ResolvedBlogCategory } from '../types';
 
@@ -93,6 +101,47 @@ export interface VisualPromptPlanInput {
 export interface VisualPromptPlanResult {
   prompt: string;
   styleName: string;
+}
+
+export interface SocialPostPromptPlanInput {
+  productName: string;
+  featureName: string;
+  description: string;
+  platform: SocialPostPlatform;
+  theme: SocialPostTheme;
+  category: SocialPostCategory;
+  language: SocialPostLanguage;
+  focus: string;
+  blogContent: string;
+  extraInstruction: string;
+  variationIndex?: number;
+  hasReferenceImage?: boolean;
+}
+
+export interface SocialPostPromptPlanResult {
+  prompt: string;
+  headline: string;
+  subheadline: string;
+  styleName: string;
+}
+
+export interface SocialPostVisualInput {
+  productName: string;
+  featureName: string;
+  description: string;
+  platform: SocialPostPlatform;
+  aspectRatio: string;
+  theme: SocialPostTheme;
+  language: SocialPostLanguage;
+  plannedPrompt: string;
+  headline: string;
+  subheadline: string;
+  variationIndex?: number;
+  category?: SocialPostCategory;
+  focus?: string;
+  referenceImage?: string | null;
+  previousImage?: string;
+  userComment?: string;
 }
 
 async function readApiError(response: Response) {
@@ -194,6 +243,10 @@ export async function planVisualPrompt(input: VisualPromptPlanInput) {
   return postAiAction<VisualPromptPlanResult>('plan-visual-prompt', { ...input });
 }
 
+export async function planSocialPostPrompt(input: SocialPostPromptPlanInput) {
+  return postAiAction<SocialPostPromptPlanResult>('plan-social-post-prompt', { ...input });
+}
+
 export async function extractColorPalette(imageBase64: string): Promise<string[]> {
   const colors = await postAiAction<string[]>('extract-color-palette', {
     imageBase64,
@@ -254,6 +307,40 @@ export const generateFinalVisual = async (
     referenceImage,
     plannedPrompt,
   });
+
+export async function generateSocialPostVisual(input: SocialPostVisualInput) {
+  return postAiAction<string>('generate-final-visual', {
+    images: [],
+    productName: input.productName,
+    featureName: input.featureName,
+    description: input.description,
+    headline: input.headline,
+    subheadline: input.subheadline,
+    cta: '',
+    includeCta: false,
+    brandColor: '#4F7CFF',
+    platform: input.platform,
+    campaignType: input.category ? getSocialPostCategoryLabel(input.category) : 'Product overview',
+    aspectRatio: input.aspectRatio,
+    tone: 'Premium',
+    designStyle: SOCIAL_POST_STYLE_NAME,
+    theme: input.theme,
+    mode: 'Social Page Post',
+    language: input.language,
+    customInstruction: input.focus || '',
+    campaignFocus: input.focus || '',
+    variationIndex: input.variationIndex ?? 0,
+    referenceImage: input.referenceImage,
+    previousImage: input.previousImage,
+    userComment: input.userComment,
+    plannedPrompt: input.plannedPrompt,
+    renderText: true,
+    attachBrandReferences: true,
+    brandReferenceTheme: input.theme,
+    brandReferenceKind: 'logo',
+    requireBrandPlacement: false,
+  });
+}
 
 export const analyzeSeoForBlog = async (
   title: string,
