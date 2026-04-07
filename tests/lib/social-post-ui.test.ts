@@ -24,6 +24,10 @@ test('social post sidebar exposes the requested controls without redundant flow 
   assert.match(source, /Focus \/ Extra Direction/);
   assert.match(source, /Optional UI Source/);
   assert.match(source, /Blog Metni/);
+  assert.match(source, /Plan 4 copy/);
+  assert.match(source, /Generate 4 visuals/);
+  assert.match(source, /Planned Headline/);
+  assert.match(source, /Planned Subheadline/);
   assert.match(source, /state\.socialPostCategory === 'blog'/);
   assert.doesNotMatch(source, /socialPostImageInstructions\[index\]/);
   assert.doesNotMatch(source, /Gemini should use it as UI source material for the final marketing visual/i);
@@ -34,6 +38,15 @@ test('social post sidebar exposes the requested controls without redundant flow 
   assert.doesNotMatch(source, /OpenAI builds the Gemini-ready prompt/i);
   assert.doesNotMatch(source, /Logo seçimi temaya göre otomatik yapılır/i);
   assert.doesNotMatch(source, /OpenAI planner prompt \+ Gemini render zinciri aktif/i);
+});
+
+test('social post app wiring separates copy planning from visual rendering', () => {
+  const appSource = readFileSync(path.join(process.cwd(), 'src', 'App.tsx'), 'utf8');
+
+  assert.match(appSource, /handlePlanSocialPosts/);
+  assert.match(appSource, /handleGenerateSocialPostVisuals/);
+  assert.match(appSource, /onPlanCopy=\{handlePlanSocialPosts\}/);
+  assert.match(appSource, /onGenerateVisuals=\{handleGenerateSocialPostVisuals\}/);
 });
 
 test('social post sidebar mirrors visual creator style with collapsible sections', () => {

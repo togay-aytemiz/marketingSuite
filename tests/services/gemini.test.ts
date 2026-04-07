@@ -308,6 +308,8 @@ test('generateSocialPostVisual renders planned headline copy while keeping brand
     plannedPrompt: 'Gemini social post render prompt',
     headline: 'Önemli sohbetleri önce gör',
     subheadline: 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.',
+    category: 'product_overview',
+    focus: 'AI reply for Instagram',
     referenceImage: 'data:image/png;base64,reference',
     previousImage: 'data:image/png;base64,previous',
     userComment: 'Reduce the glow and simplify the card stack.',
@@ -318,6 +320,9 @@ test('generateSocialPostVisual renders planned headline copy while keeping brand
   assert.equal(payload?.aspectRatio, '1:1');
   assert.equal(payload?.theme, 'light');
   assert.equal(payload?.language, 'TR');
+  assert.equal(payload?.campaignType, 'Product overview');
+  assert.equal(payload?.customInstruction, 'AI reply for Instagram');
+  assert.equal(payload?.campaignFocus, 'AI reply for Instagram');
   assert.equal(payload?.plannedPrompt, 'Gemini social post render prompt');
   assert.equal(payload?.headline, 'Önemli sohbetleri önce gör');
   assert.equal(payload?.subheadline, 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.');

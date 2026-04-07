@@ -15,13 +15,19 @@ import {
 
 import type { AppState } from '../types';
 import type { IntegrationStatus } from '../services/integrations';
-import { supportsSocialPostReferenceImage } from '../lib/social-post-prompt';
+import {
+  SOCIAL_POST_IMAGE_SLOT_COUNT,
+  supportsSocialPostReferenceImage,
+} from '../lib/social-post-prompt';
 
 interface SocialPostSidebarProps {
   state: AppState;
   setState: React.Dispatch<React.SetStateAction<AppState>>;
-  onGenerate: () => void;
-  isGenerating: boolean;
+  onPlanCopy: () => void;
+  onGenerateVisuals: () => void;
+  isPlanningCopy: boolean;
+  isGeneratingVisuals: boolean;
+  hasPlannedCopy: boolean;
   isSidebarOpen: boolean;
   setIsSidebarOpen: (isOpen: boolean) => void;
   integrationStatus: IntegrationStatus;
@@ -61,8 +67,11 @@ const LANGUAGE_OPTIONS = [
 export function SocialPostSidebar({
   state,
   setState,
-  onGenerate,
-  isGenerating,
+  onPlanCopy,
+  onGenerateVisuals,
+  isPlanningCopy,
+  isGeneratingVisuals,
+  hasPlannedCopy,
   isSidebarOpen,
   setIsSidebarOpen,
   integrationStatus,
@@ -75,11 +84,58 @@ export function SocialPostSidebar({
   });
   const openAiConfigured = integrationStatus.openai.configured;
   const geminiConfigured = integrationStatus.gemini.configured;
+  const isBusy = isPlanningCopy || isGeneratingVisuals;
   const activePlatform = PLATFORM_OPTIONS.find((option) => option.value === state.socialPostPlatform) || PLATFORM_OPTIONS[0];
   const shouldShowReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory);
+  const createEmptySocialPostSlots = () =>
+    Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null);
 
   const toggleSection = (section: keyof typeof expandedSections) => {
     setExpandedSections((prev) => ({ ...prev, [section]: !prev[section] }));
+  };
+
+  React.useEffect(() => {
+    if (!hasPlannedCopy) {
+      return;
+    }
+
+    setExpandedSections((prev) => (
+      prev.variations ? prev : { ...prev, variations: true }
+    ));
+  }, [hasPlannedCopy]);
+
+  const applyBriefChange = (updates: Partial<AppState>) => {
+    setState((prev) => ({
+      ...prev,
+      ...updates,
+      socialPostHeadlinePlans: createEmptySocialPostSlots(),
+      socialPostSubheadlinePlans: createEmptySocialPostSlots(),
+      socialPostPromptPlans: createEmptySocialPostSlots(),
+      socialPostFinalVisuals: createEmptySocialPostSlots(),
+    }));
+  };
+
+  const updatePlannedCopy = (index: number, field: 'headline' | 'subheadline', value: string) => {
+    setState((prev) => {
+      const nextHeadlines = [...prev.socialPostHeadlinePlans];
+      const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
+      const nextVisuals = [...prev.socialPostFinalVisuals];
+
+      if (field === 'headline') {
+        nextHeadlines[index] = value;
+      } else {
+        nextSubheadlines[index] = value;
+      }
+
+      nextVisuals[index] = null;
+
+      return {
+        ...prev,
+        socialPostHeadlinePlans: nextHeadlines,
+        socialPostSubheadlinePlans: nextSubheadlines,
+        socialPostFinalVisuals: nextVisuals,
+      };
+    });
   };
 
   const handleReferenceImageUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -95,19 +151,17 @@ export function SocialPostSidebar({
         return;
       }
 
-      setState((prev) => ({
-        ...prev,
+      applyBriefChange({
         socialPostReferenceImage: base64,
-      }));
+      });
     };
     reader.readAsDataURL(file);
   };
 
   const removeReferenceImage = () => {
-    setState((prev) => ({
-      ...prev,
+    applyBriefChange({
       socialPostReferenceImage: null,
-    }));
+    });
   };
 
   if (!isSidebarOpen) {
@@ -128,7 +182,7 @@ export function SocialPostSidebar({
   }
 
   return (
-    <div className={`w-80 bg-white border-r border-zinc-200 h-screen flex flex-col shrink-0 z-30 transition-opacity duration-300 ${isGenerating ? 'pointer-events-none opacity-60' : ''}`}>
+    <div className={`w-80 bg-white border-r border-zinc-200 h-screen flex flex-col shrink-0 z-30 transition-opacity duration-300 ${isBusy ? 'pointer-events-none opacity-60' : ''}`}>
       <div className="h-14 flex items-center justify-between px-4 border-b border-zinc-200 shrink-0 bg-white">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 bg-zinc-900 rounded-md flex items-center justify-center">
@@ -169,7 +223,7 @@ export function SocialPostSidebar({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setState((prev) => ({ ...prev, socialPostPlatform: option.value }))}
+                        onClick={() => applyBriefChange({ socialPostPlatform: option.value })}
                         className={`rounded-xl border px-3 py-3 text-left transition-colors ${
                           isActive
                             ? 'border-zinc-900 bg-zinc-900 text-white'
@@ -198,7 +252,7 @@ export function SocialPostSidebar({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setState((prev) => ({ ...prev, socialPostTheme: option.value }))}
+                        onClick={() => applyBriefChange({ socialPostTheme: option.value })}
                         className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
                           isActive
                             ? 'border-zinc-900 bg-zinc-900 text-white'
@@ -221,7 +275,12 @@ export function SocialPostSidebar({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setState((prev) => ({ ...prev, socialPostCategory: option.value }))}
+                        onClick={() => applyBriefChange({
+                          socialPostCategory: option.value,
+                          socialPostReferenceImage: supportsSocialPostReferenceImage(option.value)
+                            ? state.socialPostReferenceImage
+                            : null,
+                        })}
                         className={`w-full rounded-2xl border px-3 py-3 text-left transition-colors ${
                           isActive
                             ? 'border-zinc-900 bg-zinc-900 text-white'
@@ -247,7 +306,7 @@ export function SocialPostSidebar({
                       <button
                         key={option.value}
                         type="button"
-                        onClick={() => setState((prev) => ({ ...prev, socialPostLanguage: option.value }))}
+                        onClick={() => applyBriefChange({ socialPostLanguage: option.value })}
                         className={`rounded-xl border px-3 py-3 text-sm font-medium transition-colors ${
                           isActive
                             ? 'border-zinc-900 bg-zinc-900 text-white'
@@ -283,7 +342,7 @@ export function SocialPostSidebar({
               </div>
               <textarea
                 value={state.socialPostFocus}
-                onChange={(event) => setState((prev) => ({ ...prev, socialPostFocus: event.target.value }))}
+                onChange={(event) => applyBriefChange({ socialPostFocus: event.target.value })}
                 className="h-28 w-full resize-none rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:ring-zinc-900"
                 placeholder="Örn. AI automatically tagging conversations, floating tags around a central inbox card, clean premium SaaS feeling..."
               />
@@ -328,7 +387,7 @@ export function SocialPostSidebar({
                   </div>
                   <textarea
                     value={state.socialPostBlogContent}
-                    onChange={(event) => setState((prev) => ({ ...prev, socialPostBlogContent: event.target.value }))}
+                    onChange={(event) => applyBriefChange({ socialPostBlogContent: event.target.value })}
                     className="h-44 w-full resize-y rounded-2xl border border-zinc-200 bg-white px-3 py-3 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:ring-zinc-900"
                     placeholder="Blog yazısını veya uzun excerpt'i buraya yapıştır..."
                   />
@@ -368,32 +427,53 @@ export function SocialPostSidebar({
                             Variation {index + 1}
                           </div>
                         </div>
-                        {state.socialPostPromptPlans[index] ? (
+                        {state.socialPostPromptPlans[index] || state.socialPostHeadlinePlans[index] || state.socialPostSubheadlinePlans[index] ? (
                           <div className="mt-3 rounded-xl border border-zinc-200 bg-zinc-50 p-3">
-                            {state.socialPostHeadlinePlans[index] ? (
-                              <div className="mb-3 rounded-xl border border-zinc-200 bg-white p-3">
-                                <div className="text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                                  Planned Lockup
+                            <div className="space-y-3">
+                              <div className="space-y-1">
+                                <label className="block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                                  Planned Headline
+                                </label>
+                                <input
+                                  type="text"
+                                  value={state.socialPostHeadlinePlans[index] || ''}
+                                  onChange={(event) => updatePlannedCopy(index, 'headline', event.target.value)}
+                                  className="w-full rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:ring-zinc-900"
+                                  placeholder="OpenAI headline plan"
+                                />
+                              </div>
+
+                              <div className="space-y-1">
+                                <label className="block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                                  Planned Subheadline
+                                </label>
+                                <textarea
+                                  value={state.socialPostSubheadlinePlans[index] || ''}
+                                  onChange={(event) => updatePlannedCopy(index, 'subheadline', event.target.value)}
+                                  rows={3}
+                                  className="w-full resize-none rounded-xl border border-zinc-200 bg-white px-3 py-2 text-sm text-zinc-900 shadow-sm focus:border-zinc-900 focus:ring-zinc-900"
+                                  placeholder="OpenAI subheadline plan"
+                                />
+                              </div>
+                            </div>
+
+                            {state.socialPostPromptPlans[index] ? (
+                              <div className="mt-3 rounded-xl border border-zinc-200 bg-white p-3">
+                                <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
+                                  <LayoutTemplate className="w-3.5 h-3.5" />
+                                  Planned Prompt
                                 </div>
-                                <div className="mt-2 text-sm font-semibold leading-tight text-zinc-900">
-                                  {state.socialPostHeadlinePlans[index]}
-                                </div>
-                                {state.socialPostSubheadlinePlans[index] ? (
-                                  <div className="mt-1 text-xs leading-5 text-zinc-600">
-                                    {state.socialPostSubheadlinePlans[index]}
-                                  </div>
-                                ) : null}
+                                <p className="mt-2 text-[11px] leading-5 text-zinc-600 line-clamp-5">
+                                  {state.socialPostPromptPlans[index]}
+                                </p>
                               </div>
                             ) : null}
-                            <div className="flex items-center gap-2 text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                              <LayoutTemplate className="w-3.5 h-3.5" />
-                              Planned Prompt
-                            </div>
-                            <p className="mt-2 text-[11px] leading-5 text-zinc-600 line-clamp-5">
-                              {state.socialPostPromptPlans[index]}
-                            </p>
                           </div>
-                        ) : null}
+                        ) : (
+                          <div className="mt-3 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[11px] leading-5 text-zinc-500">
+                            Run Plan 4 copy to generate editable lockup text and the Gemini planner prompt for this variation.
+                          </div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -431,23 +511,47 @@ export function SocialPostSidebar({
       </div>
 
       <div className="p-4 border-t border-zinc-100 bg-white">
-        <button
-          onClick={onGenerate}
-          disabled={isGenerating || !openAiConfigured || !geminiConfigured}
-          className="flex w-full items-center justify-center rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
-        >
-          {isGenerating ? (
-            <span className="flex items-center">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              Generating 4 visuals...
-            </span>
-          ) : (
-            <span className="flex items-center">
-              <ImageIcon className="mr-2 h-4 w-4" />
-              Generate 4 visuals
-            </span>
-          )}
-        </button>
+        <div className="space-y-2">
+          <button
+            onClick={onPlanCopy}
+            disabled={isBusy || !openAiConfigured}
+            className="flex w-full items-center justify-center rounded-xl border border-zinc-200 bg-white px-4 py-3 text-sm font-semibold text-zinc-900 transition-colors hover:bg-zinc-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isPlanningCopy ? (
+              <span className="flex items-center">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Planning 4 copy...
+              </span>
+            ) : (
+              <span className="flex items-center">
+                <LayoutTemplate className="mr-2 h-4 w-4" />
+                Plan 4 copy
+              </span>
+            )}
+          </button>
+
+          <button
+            onClick={onGenerateVisuals}
+            disabled={isBusy || !geminiConfigured || !hasPlannedCopy}
+            className="flex w-full items-center justify-center rounded-xl bg-zinc-900 px-4 py-3 text-sm font-semibold text-white transition-colors hover:bg-zinc-800 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {isGeneratingVisuals ? (
+              <span className="flex items-center">
+                <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                Generating 4 visuals...
+              </span>
+            ) : (
+              <span className="flex items-center">
+                <ImageIcon className="mr-2 h-4 w-4" />
+                Generate 4 visuals
+              </span>
+            )}
+          </button>
+
+          <p className="px-1 text-[11px] leading-5 text-zinc-500">
+            Review or edit the planned headline and subheadline first. Generate 4 visuals uses the current copy, focus, and planned Gemini prompt together.
+          </p>
+        </div>
       </div>
     </div>
   );

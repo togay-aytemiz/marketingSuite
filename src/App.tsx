@@ -18,6 +18,7 @@ import {
 } from './services/gemini';
 import {
   buildFallbackSocialPostLockup,
+  SOCIAL_POST_IMAGE_SLOT_COUNT,
   resolveSocialPostAspectRatio,
   resolveSocialPostFocus,
   supportsSocialPostReferenceImage,
@@ -49,6 +50,8 @@ function MainApp() {
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingStatus, setGeneratingStatus] = useState<boolean[]>([false, false, false, false]);
   const [socialPostGeneratingStatus, setSocialPostGeneratingStatus] = useState<boolean[]>([false, false, false, false]);
+  const [isPlanningSocialPosts, setIsPlanningSocialPosts] = useState(false);
+  const [isRenderingSocialPosts, setIsRenderingSocialPosts] = useState(false);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
   const [isIntegrationSettingsOpen, setIsIntegrationSettingsOpen] = useState(false);
   const [isSidebarOpen, setIsSidebarOpen] = useState(true);
@@ -112,6 +115,11 @@ function MainApp() {
     void loadStatus();
   }, []);
 
+  const createEmptySocialPostSlots = () =>
+    Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null);
+
+  const hasSocialPostPlans = state.socialPostPromptPlans.some((value) => String(value || '').trim().length > 0);
+
   const handleGenerate = async () => {
     if (state.activeModule === 'blog') {
       setTriggerBlogGen(prev => prev + 1);
@@ -119,7 +127,7 @@ function MainApp() {
     }
 
     if (state.activeModule === 'socialPosts') {
-      await handleGenerateSocialPosts();
+      await handlePlanSocialPosts();
       return;
     }
 
@@ -245,101 +253,136 @@ function MainApp() {
     setIsGenerating(false);
   };
 
-  const handleGenerateSocialPosts = async () => {
-    setIsGenerating(true);
-    setSocialPostGeneratingStatus([true, true, true, true]);
+  const handlePlanSocialPosts = async () => {
+    setIsPlanningSocialPosts(true);
+    setSocialPostGeneratingStatus(Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => false));
     setState((prev) => ({
       ...prev,
-      socialPostHeadlinePlans: [null, null, null, null],
-      socialPostSubheadlinePlans: [null, null, null, null],
-      socialPostPromptPlans: [null, null, null, null],
-      socialPostFinalVisuals: [null, null, null, null],
+      socialPostHeadlinePlans: createEmptySocialPostSlots(),
+      socialPostSubheadlinePlans: createEmptySocialPostSlots(),
+      socialPostPromptPlans: createEmptySocialPostSlots(),
+      socialPostFinalVisuals: createEmptySocialPostSlots(),
     }));
 
-    const aspectRatio = resolveSocialPostAspectRatio(state.socialPostPlatform);
+    const focus = resolveSocialPostFocus(state.socialPostFocus);
+    const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
+      ? state.socialPostReferenceImage
+      : null;
 
-    for (let i = 0; i < 4; i += 1) {
-      const focus = resolveSocialPostFocus(
-        state.socialPostFocus
-      );
-      const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
-        ? state.socialPostReferenceImage
-        : null;
-      const plannedPrompt = await planSocialPostPrompt({
-        productName: state.productName,
-        featureName: state.featureName,
-        description: state.description,
-        platform: state.socialPostPlatform,
-        theme: state.socialPostTheme,
-        category: state.socialPostCategory,
-        language: state.socialPostLanguage,
-        focus,
-        blogContent: state.socialPostBlogContent,
-        extraInstruction: '',
-        variationIndex: i,
-        hasReferenceImage: Boolean(socialPostReferenceImage),
-      });
-      const fallbackLockup = buildFallbackSocialPostLockup({
-        category: state.socialPostCategory,
-        language: state.socialPostLanguage,
-        productName: state.productName,
-        featureName: state.featureName,
-      });
-      const nextHeadline = plannedPrompt?.headline?.trim() || fallbackLockup.headline;
-      const nextSubheadline = plannedPrompt?.subheadline?.trim() || fallbackLockup.subheadline;
-      const nextPrompt = plannedPrompt?.prompt || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
+    try {
+      for (let i = 0; i < SOCIAL_POST_IMAGE_SLOT_COUNT; i += 1) {
+        const plannedPrompt = await planSocialPostPrompt({
+          productName: state.productName,
+          featureName: state.featureName,
+          description: state.description,
+          platform: state.socialPostPlatform,
+          theme: state.socialPostTheme,
+          category: state.socialPostCategory,
+          language: state.socialPostLanguage,
+          focus,
+          blogContent: state.socialPostBlogContent,
+          extraInstruction: '',
+          variationIndex: i,
+          hasReferenceImage: Boolean(socialPostReferenceImage),
+        });
+        const fallbackLockup = buildFallbackSocialPostLockup({
+          category: state.socialPostCategory,
+          language: state.socialPostLanguage,
+          productName: state.productName,
+          featureName: state.featureName,
+        });
+        const nextHeadline = plannedPrompt?.headline?.trim() || fallbackLockup.headline;
+        const nextSubheadline = plannedPrompt?.subheadline?.trim() || fallbackLockup.subheadline;
+        const nextPrompt = plannedPrompt?.prompt || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
 
-      setState((prev) => {
-        const nextHeadlines = [...prev.socialPostHeadlinePlans];
-        const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
-        const nextPlans = [...prev.socialPostPromptPlans];
-        nextHeadlines[i] = nextHeadline;
-        nextSubheadlines[i] = nextSubheadline;
-        nextPlans[i] = nextPrompt;
-        return {
-          ...prev,
-          socialPostHeadlinePlans: nextHeadlines,
-          socialPostSubheadlinePlans: nextSubheadlines,
-          socialPostPromptPlans: nextPlans,
-        };
-      });
+        setState((prev) => {
+          const nextHeadlines = [...prev.socialPostHeadlinePlans];
+          const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
+          const nextPlans = [...prev.socialPostPromptPlans];
+          nextHeadlines[i] = nextHeadline;
+          nextSubheadlines[i] = nextSubheadline;
+          nextPlans[i] = nextPrompt;
+          return {
+            ...prev,
+            socialPostHeadlinePlans: nextHeadlines,
+            socialPostSubheadlinePlans: nextSubheadlines,
+            socialPostPromptPlans: nextPlans,
+          };
+        });
+      }
+    } finally {
+      setIsPlanningSocialPosts(false);
+    }
+  };
 
-      const visual = await generateSocialPostVisual({
-        productName: state.productName,
-        featureName: state.featureName,
-        description: state.description,
-        platform: state.socialPostPlatform,
-        aspectRatio,
-        theme: state.socialPostTheme,
-        language: state.socialPostLanguage,
-        plannedPrompt: nextPrompt,
-        headline: nextHeadline,
-        subheadline: nextSubheadline,
-        variationIndex: i,
-        category: state.socialPostCategory,
-        focus,
-        referenceImage: socialPostReferenceImage,
-      });
-
-      const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
-
-      setState((prev) => {
-        const nextVisuals = [...prev.socialPostFinalVisuals];
-        nextVisuals[i] = fittedVisual || visual;
-        return {
-          ...prev,
-          socialPostFinalVisuals: nextVisuals,
-        };
-      });
-
-      setSocialPostGeneratingStatus((prev) => {
-        const nextStatus = [...prev];
-        nextStatus[i] = false;
-        return nextStatus;
-      });
+  const handleGenerateSocialPostVisuals = async () => {
+    if (!hasSocialPostPlans) {
+      return;
     }
 
-    setIsGenerating(false);
+    const aspectRatio = resolveSocialPostAspectRatio(state.socialPostPlatform);
+    const focus = resolveSocialPostFocus(state.socialPostFocus);
+    const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
+      ? state.socialPostReferenceImage
+      : null;
+
+    setIsRenderingSocialPosts(true);
+    setSocialPostGeneratingStatus(Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => true));
+    setState((prev) => ({
+      ...prev,
+      socialPostFinalVisuals: createEmptySocialPostSlots(),
+    }));
+
+    try {
+      for (let i = 0; i < SOCIAL_POST_IMAGE_SLOT_COUNT; i += 1) {
+        const fallbackLockup = buildFallbackSocialPostLockup({
+          category: state.socialPostCategory,
+          language: state.socialPostLanguage,
+          productName: state.productName,
+          featureName: state.featureName,
+        });
+        const plannedPrompt = state.socialPostPromptPlans[i]?.trim()
+          || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
+        const plannedHeadline = state.socialPostHeadlinePlans[i]?.trim() || fallbackLockup.headline;
+        const plannedSubheadline = state.socialPostSubheadlinePlans[i]?.trim() || fallbackLockup.subheadline;
+
+        const visual = await generateSocialPostVisual({
+          productName: state.productName,
+          featureName: state.featureName,
+          description: state.description,
+          platform: state.socialPostPlatform,
+          aspectRatio,
+          theme: state.socialPostTheme,
+          language: state.socialPostLanguage,
+          plannedPrompt,
+          headline: plannedHeadline,
+          subheadline: plannedSubheadline,
+          variationIndex: i,
+          category: state.socialPostCategory,
+          focus,
+          referenceImage: socialPostReferenceImage,
+        });
+
+        const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
+
+        setState((prev) => {
+          const nextVisuals = [...prev.socialPostFinalVisuals];
+          nextVisuals[i] = fittedVisual || visual;
+          return {
+            ...prev,
+            socialPostFinalVisuals: nextVisuals,
+          };
+        });
+
+        setSocialPostGeneratingStatus((prev) => {
+          const nextStatus = [...prev];
+          nextStatus[i] = false;
+          return nextStatus;
+        });
+      }
+    } finally {
+      setIsRenderingSocialPosts(false);
+    }
   };
 
   const handleRegenerate = async (index: number, comment: string) => {
@@ -553,8 +596,11 @@ function MainApp() {
         <SocialPostSidebar
           state={state}
           setState={setState}
-          onGenerate={handleGenerate}
-          isGenerating={isGenerating}
+          onPlanCopy={handlePlanSocialPosts}
+          onGenerateVisuals={handleGenerateSocialPostVisuals}
+          isPlanningCopy={isPlanningSocialPosts}
+          isGeneratingVisuals={isRenderingSocialPosts}
+          hasPlannedCopy={hasSocialPostPlans}
           isSidebarOpen={isSidebarOpen}
           setIsSidebarOpen={setIsSidebarOpen}
           integrationStatus={integrationStatus}
@@ -677,9 +723,9 @@ function MainApp() {
             </div>
           ) : state.activeModule === 'socialPosts' ? (
             <div className="p-6 lg:p-8 w-full h-full">
-              {(isGenerating || state.socialPostFinalVisuals.some((visual) => visual !== null)) ? (
+              {(isPlanningSocialPosts || isRenderingSocialPosts || hasSocialPostPlans || state.socialPostFinalVisuals.some((visual) => visual !== null)) ? (
                 <div className="grid grid-cols-1 xl:grid-cols-2 gap-10 w-full">
-                  {Array.from({ length: 4 }).map((_, i) => (
+                  {Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }).map((_, i) => (
                     <SocialPostPreview
                       key={i}
                       platform={state.socialPostPlatform}
@@ -701,7 +747,7 @@ function MainApp() {
                     </div>
                     <h3 className="text-base font-semibold text-zinc-900 tracking-tight">No social posts generated</h3>
                     <p className="mt-2 text-sm text-zinc-500 leading-relaxed">
-                      OpenAI will first plan 4 Gemini-ready prompts using product context, PRD/ROADMAP notes, and local product reality. Gemini then renders each social post visual sequentially.
+                      Plan the copy first, review or edit it in the sidebar, then generate the visuals with the current copy, focus, and Gemini-ready prompt.
                     </p>
                   </div>
                 </div>
