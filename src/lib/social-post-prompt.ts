@@ -70,7 +70,8 @@ TYPOGRAPHY LOCKUP:
 - Do not rely on extra readable UI microcopy to explain the concept
 
 SUPPORTING MICROCOPY:
-- Any secondary UI text inside cards should be abstract, cropped, blurred, or unreadable
+- Any intentional secondary UI text inside cards should be short, sparse, and readable in the selected copy language
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders
 - Let the headline lockup carry the main message
 
 MOOD:
@@ -400,8 +401,8 @@ REFERENCE IMAGE MODE:
 - Do not reinterpret the source as a dark fantasy dashboard or generic glass cards.
 - Simplify only dense microcopy or non-essential chrome; keep the product surface feeling real and close to the shipped UI.
 - Never preserve personal names, usernames, initials, or profile photos from the reference.
-- Blur, simplify, or regenerate avatars into generic fictional profile markers.
-- If an identity label must survive, replace it with a fictional localized placeholder or make it unreadable.
+- Simplify or regenerate avatars into generic fictional profile markers.
+- If an identity label must survive, replace it with a fictional localized placeholder or omit the non-essential label.
 `.trim();
 }
 
@@ -461,6 +462,29 @@ FOCUS ROLE:
 `.trim();
 }
 
+function buildSocialPostVisibleTextLanguageLock(language: SocialPostLanguage) {
+  if (language === 'TR') {
+    return `
+TURKISH VISIBLE TEXT LOCK:
+- Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be Turkish with natural Turkish characters.
+- Do not render mixed-language or pseudo-Turkish strings; no gibberish, malformed words, partial translations, or Turkish-looking nonsense.
+- Avoid readable English terms such as "Lead Scoring", "High Score", "Assistant", or "AI response"; use Turkish equivalents only when supporting UI text is truly necessary.
+- Turkish ad copy must stay readable, not blurred or hidden.
+- Use short natural Turkish phrases for visible chat and support messages.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders; never apply this to intended ad copy, message copy, or callout copy.
+`.trim();
+  }
+
+  return `
+VISIBLE TEXT LANGUAGE LOCK:
+- Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be English.
+- Do not render mixed-language strings, pseudo-language gibberish, malformed words, or partial translations.
+- English ad copy must stay readable, not blurred or hidden.
+- Use short natural English phrases for visible chat and support messages.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders; never apply this to intended ad copy, message copy, or callout copy.
+`.trim();
+}
+
 export function buildSocialPostPlannerPrompt(input: SocialPostPlannerPromptInput) {
   const platform = input.platform;
   const theme = input.theme;
@@ -485,6 +509,7 @@ export function buildSocialPostPlannerPrompt(input: SocialPostPlannerPromptInput
   const channelPriorityBlock = buildChannelPriorityBlock(requestedChannels);
   const channelAccentBlock = buildChannelAccentBlock(requestedChannels);
   const focusCopyPriorityBlock = buildFocusCopyPriorityBlock(focus);
+  const visibleTextLanguageLock = buildSocialPostVisibleTextLanguageLock(input.language);
 
   return `
 You are a senior creative director generating one production-ready Gemini image prompt for a SaaS social page post visual.
@@ -554,18 +579,21 @@ NON-NEGOTIABLE RULES:
 - This is for an Instagram or LinkedIn page post, not a banner ad, device mockup, or website hero.
 - Keep the same overall layout logic between dark and light themes; only colors, lighting, and contrast should change.
 - Build the composition around a strong headline lockup area for one large headline and one short supporting line on canvas.
-- Keep all 4 variations as siblings of the same brief; only crop, hierarchy, and supporting density should change.
-- If text is ever rendered later, it must be in ${languageLabel}.
+- Keep all 4 variations as siblings of the same brief; reuse the same headline and subheadline copy while only crop, hierarchy, and supporting density change.
+- Any visible text in the final render must be in ${languageLabel}.
 - Any example words, labels, status names, chip text, or focus phrases are semantic guidance only. Do not instruct Gemini to render those words literally on canvas.
-- If microcopy ever becomes unavoidable later, it must be in ${languageLabel} only.
+- Any intentional microcopy must be short, readable, and in ${languageLabel} only.
+- Do not render prompt field labels such as "Headline", "Subheadline", "CTA", or "Call to Action" as visible words.
+${visibleTextLanguageLock}
 - Do not plan standalone decorative logo placements or make the composition revolve around a logo.
 - If the product UI naturally contains a brand mark, it may appear there, but it should stay non-focal.
 - ${input.language === 'TR' ? 'Never introduce English UI labels or placeholder words when the selected language is Turkish.' : `Never introduce readable UI labels in a language other than ${languageLabel}.`}
 - ${input.language === 'TR' ? 'Never preserve English labels, usernames, or person-name strings from uploaded references when the selected language is Turkish.' : `Never preserve readable imported labels or identity strings in a language other than ${languageLabel}.`}
-- Keep any supporting UI copy abstract, cropped, blurred, or unreadable so the headline lockup remains dominant.
-- Keep UI panels, badges, profile cards, and score indicators free of readable microcopy.
-- Avoid readable UI headers such as customer info, customer profiles, high score, lead score, automated response, or person-name labels.
-- Never preserve real profile identities from uploaded references; use fictional localized placeholders, generic avatar markers, or blur instead.
+- If supporting UI copy is intentionally visible, keep it short, sparse, and readable in ${languageLabel}.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders.
+- Keep UI panels, badges, profile cards, and score indicators free of English labels, malformed words, and unnecessary dense microcopy.
+- Avoid English or malformed UI headers such as customer info, customer profiles, high score, lead score, automated response, or person-name labels; translate necessary labels into short ${languageLabel} phrases or omit non-essential labels.
+- Never preserve real profile identities from uploaded references; use fictional localized placeholders or generic avatar markers instead.
 - Do not invent product capabilities, UI states, metrics, or workflows that are not supported by the provided product context, PRD/ROADMAP context, or local codebase reality.
 - Keep the scene premium, minimal, and sharp at a glance.
 

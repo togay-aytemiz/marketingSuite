@@ -752,6 +752,21 @@ function stripWrappingQuotes(value: string) {
   return normalized;
 }
 
+function stripCopyFieldLabel(value: string) {
+  const normalized = stripWrappingQuotes(value)
+    .replace(/^(headline|subheadline|cta|call to action|başlık|alt başlık|eylem çağrısı)\s*[:：-]\s*/i, '')
+    .trim();
+
+  return stripWrappingQuotes(normalized);
+}
+
+function normalizeGeneratedVisualCopyValue(value: string, language: string) {
+  const stripped = stripCopyFieldLabel(value);
+  return getPrimaryLanguage(language) === 'TR'
+    ? normalizeTurkishMarketingText(stripped)
+    : cleanGeneratedMarkdownArtifacts(stripped);
+}
+
 const INLINE_IMAGE_AUXILIARY_HEADING_REGEX = /^(s[ıi]k sorulan sorular|frequently asked questions|faq|sonraki ad[ıi]m|next step)\b/i;
 
 function resolveTargetInlineImageCount(lengthKey: 'short' | 'medium' | 'long') {
@@ -1926,7 +1941,7 @@ export async function generateMarketingCopy(
   const outputLanguage = getSingleOutputLanguageName(language);
   const strategyContextInstruction = buildVisualStrategyContextInstruction();
   const realityContextInstruction = buildVisualRealityContextInstruction();
-  return runOpenAiJson<{ headline: string; subheadline: string; cta: string }>({
+  const result = await runOpenAiJson<{ headline: string; subheadline: string; cta: string }>({
     schemaName: 'marketing_copy',
     schema: {
       type: 'object',
@@ -1954,12 +1969,24 @@ ${realityContextInstruction}
 Rules:
 - headline: max 8 words
 - subheadline: max 15 words
+- Do not prefix returned JSON values with field labels such as "Headline:", "Subheadline:", "CTA:", or "Call to Action:".
+- Return raw copy only in each JSON value.
 - CTA Enabled: ${includeCta ? 'yes' : 'no'}
 - ${includeCta ? 'cta: max 4 words' : 'cta: return an empty string'}
 - ${includeCta ? 'Keep the CTA crisp and action-oriented.' : 'CTA is disabled for this visual. Do not invent a CTA, button label, or action copy.'}
 - avoid generic buzzwords
 `,
   });
+
+  if (!result) {
+    return null;
+  }
+
+  return {
+    headline: normalizeGeneratedVisualCopyValue(result.headline || '', language),
+    subheadline: normalizeGeneratedVisualCopyValue(result.subheadline || '', language),
+    cta: includeCta ? normalizeGeneratedVisualCopyValue(result.cta || '', language) : '',
+  };
 }
 
 export async function generateCopyIdeas(
@@ -1992,7 +2019,7 @@ ${normalizedIdeaAngle}
 - Treat it as a priority signal, but keep the copy aligned with the campaign type, strategy context, and real product capabilities.
 `
     : '';
-  return runOpenAiJson<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>({
+  const result = await runOpenAiJson<{ headlines: string[]; subheadlines: string[]; ctas: string[] }>({
     schemaName: 'marketing_copy_ideas',
     schema: {
       type: 'object',
@@ -2019,10 +2046,27 @@ ${strategyContextInstruction}
 ${realityContextInstruction}
 
 Return 3 options for each field.
+- Do not prefix returned JSON values with field labels such as "Headline:", "Subheadline:", "CTA:", or "Call to Action:".
+- Return raw copy only in each JSON array item.
 - CTA Enabled: ${includeCta ? 'yes' : 'no'}
 - ${includeCta ? 'Return 3 CTA options as short action phrases.' : 'Return ctas as an empty array. CTA is disabled for this visual, so do not invent CTA copy.'}
 `,
   });
+
+  if (!result) {
+    return null;
+  }
+
+  const normalizeList = (items: string[] | undefined) =>
+    (Array.isArray(items) ? items : [])
+      .map((item) => normalizeGeneratedVisualCopyValue(item || '', language))
+      .filter(Boolean);
+
+  return {
+    headlines: normalizeList(result.headlines),
+    subheadlines: normalizeList(result.subheadlines),
+    ctas: includeCta ? normalizeList(result.ctas) : [],
+  };
 }
 
 export async function generateVisualPromptPlan(
@@ -2137,12 +2181,16 @@ Rules:
 - Return one short headline and one short supporting subheadline in ${input.language === 'TR' ? 'Turkish' : 'English'} for visible on-canvas typography.
 - The headline should feel bold, premium, and scroll-stopping. Aim for roughly 2-6 words when possible.
 - The subheadline should clarify the value in one short line. Keep it compact, premium, and easy to read at a glance.
+- Do not prefix the returned headline or subheadline values with field labels such as "Headline:" or "Subheadline:".
+- In the final Gemini prompt, explicitly prevent field labels like "Headline", "Subheadline", "CTA", or "Call to Action" from appearing as visible words.
 - Keep the copy aligned with the same brief as the image. All four variants should feel like siblings, not unrelated campaigns.
 - If focus is provided, the headline and subheadline must stay anchored to that focus.
 - Treat focus as the primary campaign angle for visible copy, not as a literal phrase to repeat word-for-word.
 - Do not let background product context, project naming, or dominant channel references override the user-provided focus.
 - Use the product context, PRD/ROADMAP context, and local codebase reality to validate the claim set, not to replace the requested angle with a broader default story.
-- The image is not text-free. Design it around a strong headline lockup while keeping all other UI microcopy abstract or unreadable.
+- Treat the headline and subheadline as shared campaign copy that can be reused across all four visual variations; variation should change image composition only, not the copy angle.
+- The image is not text-free. Design it around a strong readable headline lockup; any intentional supporting UI copy must be short, sparse, and in the selected language.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders.
 - Keep the frame suitable for Instagram or LinkedIn page posts, not banner ads or website hero layouts.
 - Keep the composition consistent with the selected theme and category system.
 - Do not invent product capabilities, workflows, labels, or UI states beyond the explicit brief, PRD/ROADMAP context, and local codebase reality.
@@ -2162,8 +2210,8 @@ Return JSON only:
     return null;
   }
 
-  const headline = stripWrappingQuotes(result.headline || '');
-  const subheadline = stripWrappingQuotes(result.subheadline || '');
+  const headline = stripCopyFieldLabel(result.headline || '');
+  const subheadline = stripCopyFieldLabel(result.subheadline || '');
 
   return {
     ...result,

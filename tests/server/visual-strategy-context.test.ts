@@ -84,9 +84,9 @@ test('generateMarketingCopy includes product strategy context in the visual-copy
           {
             message: {
               content: JSON.stringify({
-                headline: 'Smarter shared inbox',
-                subheadline: 'Route every conversation with context.',
-                cta: 'Try it',
+                headline: 'Headline: Smarter shared inbox',
+                subheadline: 'Subheadline: Route every conversation with context.',
+                cta: 'CTA: Try it',
               }),
             },
           },
@@ -101,7 +101,7 @@ test('generateMarketingCopy includes product strategy context in the visual-copy
 
   try {
     await withTempStrategyDocs(async () => {
-      await generateMarketingCopy(
+      const result = await generateMarketingCopy(
         'Qualy',
         'AI Inbox',
         'Unified inbox for support and sales teams.',
@@ -110,6 +110,12 @@ test('generateMarketingCopy includes product strategy context in the visual-copy
         'Professional',
         'EN'
       );
+
+      assert.deepEqual(result, {
+        headline: 'Smarter shared inbox',
+        subheadline: 'Route every conversation with context.',
+        cta: 'Try it',
+      });
     });
   } finally {
     global.fetch = originalFetch;
@@ -120,6 +126,7 @@ test('generateMarketingCopy includes product strategy context in the visual-copy
   assert.match(prompts[0] || '', /AI Inbox/);
   assert.match(prompts[0] || '', /Platform:\s+LinkedIn/i);
   assert.match(prompts[0] || '', /deterministic routing/i);
+  assert.match(prompts[0] || '', /Do not prefix returned JSON values with field labels/i);
 });
 
 test('generateCopyIdeas includes product strategy context in the visual-copy ideation prompt', async () => {

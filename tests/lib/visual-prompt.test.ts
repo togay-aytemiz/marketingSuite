@@ -335,9 +335,36 @@ test('buildGeminiRenderPrompt keeps readable copy limited to the supplied lockup
 
   assert.match(prompt, /All visible text must be in Turkish/i);
   assert.match(prompt, /Only the supplied headline, subheadline, and CTA \(if enabled\) may appear as readable copy/i);
-  assert.match(prompt, /Keep any supporting UI copy abstract, blurred, cropped, or unreadable/i);
-  assert.match(prompt, /Do not render readable UI headers, field labels, card titles, person names, score badges, percentages, list rows, profile names, or assistant labels/i);
+  assert.match(prompt, /Turkish ad copy must stay crisp, legible, and readable/i);
+  assert.match(prompt, /If a chat bubble, message, reply, label, callout, status chip, score indicator, or UI text is intentionally visible, render it as short readable Turkish/i);
+  assert.match(prompt, /do not blur, crop, hide, or skeletonize intended copy/i);
+  assert.match(prompt, /Only decorative dense UI chrome may become abstract skeleton lines/i);
+  assert.doesNotMatch(prompt, /Keep any supporting UI copy abstract, blurred, cropped, or unreadable/i);
   assert.match(prompt, /Do not reproduce prompt phrases like "Customer Info", "customer profiles", "High score", "Lead Score", or "AI Automated Response" as visible UI text/i);
+});
+
+test('buildGeminiRenderPrompt makes magic edits target the previous image and visibly apply feedback', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual with a dense card stack.',
+    headline: 'Önemli leadleri önce gör',
+    subheadline: 'Yapay zeka en güçlü sinyali yukarı taşısın.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 0,
+    previousImage: 'data:image/png;base64,previous',
+    userComment: 'Kartları sadeleştir ve bozuk tarih yazılarını kaldır.',
+  });
+
+  assert.match(prompt, /EDIT MODE/i);
+  assert.match(prompt, /The first attached image is the current generated visual to edit/i);
+  assert.match(prompt, /must visibly apply the user feedback/i);
+  assert.match(prompt, /Kartları sadeleştir ve bozuk tarih yazılarını kaldır/i);
 });
 
 test('buildGeminiRenderPrompt passes mandatory headline copy without wrapping quotation marks', () => {
@@ -356,10 +383,33 @@ test('buildGeminiRenderPrompt passes mandatory headline copy without wrapping qu
     variationIndex: 0,
   });
 
-  assert.match(prompt, /Headline:\s+Qualy ile Etkili İletişim/i);
-  assert.match(prompt, /Subheadline:\s+Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\./i);
+  assert.match(prompt, /Exact headline text to render:\s+Qualy ile Etkili İletişim/i);
+  assert.match(prompt, /Exact subheadline text to render:\s+Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\./i);
   assert.doesNotMatch(prompt, /Headline:\s+"Qualy ile Etkili İletişim"/i);
   assert.doesNotMatch(prompt, /Subheadline:\s+"Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\."/i);
+});
+
+test('buildGeminiRenderPrompt passes mandatory copy as values and forbids field-label prefixes', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium editorial social post visual.',
+    headline: 'Qualy ile Etkili İletişim',
+    subheadline: 'Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'TR',
+    images: [],
+    featureName: 'Lead Scoring',
+    brandName: 'Qualy',
+    theme: 'light',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /Exact headline text to render:\s+Qualy ile Etkili İletişim/i);
+  assert.match(prompt, /Exact subheadline text to render:\s+Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin\./i);
+  assert.match(prompt, /Do not render field labels such as "Headline", "Subheadline", "CTA", or "Call to Action"/i);
+  assert.doesNotMatch(prompt, /Headline:\s+Qualy ile Etkili İletişim/i);
+  assert.doesNotMatch(prompt, /Subheadline:\s+Yapay zeka destekli akıllı asistanınız/i);
 });
 
 test('buildGeminiRenderPrompt treats prompt example labels as semantic-only when visible copy is disabled', () => {
@@ -381,7 +431,7 @@ test('buildGeminiRenderPrompt treats prompt example labels as semantic-only when
 
   assert.doesNotMatch(prompt, /unless the planned prompt explicitly overrides that constraint/i);
   assert.match(prompt, /Do not render literal words from the prompt/i);
-  assert.match(prompt, /replace it with abstract lines, neutral bars, dots, icons, or unreadable placeholders/i);
+  assert.match(prompt, /replace it with abstract lines, neutral bars, dots, icons, or no-text placeholders/i);
   assert.match(prompt, /If any readable text survives, it must be in Turkish only/i);
 });
 
@@ -447,7 +497,7 @@ test('buildGeminiRenderPrompt explicitly forbids English ui copy when the render
   });
 
   assert.match(prompt, /Never render English words from the planned prompt, internal reasoning, or example ui labels/i);
-  assert.match(prompt, /If a supporting label is unavoidable, translate it into Turkish or make it unreadable/i);
+  assert.match(prompt, /If a supporting label is unavoidable, translate it into short readable Turkish or omit the non-essential label/i);
 });
 
 test('buildGeminiRenderPrompt keeps an explicitly requested single channel locked during render', () => {
@@ -546,6 +596,6 @@ test('buildGeminiRenderPrompt keeps uploaded reference ui crisp instead of reint
   assert.match(prompt, /Use 1-3 focused crops or panels from the reference/i);
   assert.match(prompt, /Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift/i);
   assert.match(prompt, /Never preserve real names, usernames, initials, avatar photos, or face crops from the reference/i);
-  assert.match(prompt, /Blur, simplify, or regenerate avatars into generic fictional profile markers/i);
-  assert.match(prompt, /If a tiny identity label survives, replace it with a fictional localized placeholder or make it unreadable/i);
+  assert.match(prompt, /Simplify or regenerate avatars into generic fictional profile markers/i);
+  assert.match(prompt, /If a tiny identity label survives, replace it with a fictional localized placeholder or omit the non-essential label/i);
 });

@@ -270,6 +270,9 @@ function MainApp() {
       : null;
 
     try {
+      let sharedHeadline = '';
+      let sharedSubheadline = '';
+
       for (let i = 0; i < SOCIAL_POST_IMAGE_SLOT_COUNT; i += 1) {
         const plannedPrompt = await planSocialPostPrompt({
           productName: state.productName,
@@ -291,16 +294,16 @@ function MainApp() {
           productName: state.productName,
           featureName: state.featureName,
         });
-        const nextHeadline = plannedPrompt?.headline?.trim() || fallbackLockup.headline;
-        const nextSubheadline = plannedPrompt?.subheadline?.trim() || fallbackLockup.subheadline;
+        sharedHeadline = sharedHeadline || plannedPrompt?.headline?.trim() || fallbackLockup.headline;
+        sharedSubheadline = sharedSubheadline || plannedPrompt?.subheadline?.trim() || fallbackLockup.subheadline;
         const nextPrompt = plannedPrompt?.prompt || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
 
         setState((prev) => {
           const nextHeadlines = [...prev.socialPostHeadlinePlans];
           const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
           const nextPlans = [...prev.socialPostPromptPlans];
-          nextHeadlines[i] = nextHeadline;
-          nextSubheadlines[i] = nextSubheadline;
+          nextHeadlines[i] = sharedHeadline;
+          nextSubheadlines[i] = sharedSubheadline;
           nextPlans[i] = nextPrompt;
           return {
             ...prev,
@@ -325,6 +328,14 @@ function MainApp() {
     const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
       ? state.socialPostReferenceImage
       : null;
+    const fallbackLockup = buildFallbackSocialPostLockup({
+      category: state.socialPostCategory,
+      language: state.socialPostLanguage,
+      productName: state.productName,
+      featureName: state.featureName,
+    });
+    const sharedHeadline = state.socialPostHeadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim() || fallbackLockup.headline;
+    const sharedSubheadline = state.socialPostSubheadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim() || fallbackLockup.subheadline;
 
     setIsRenderingSocialPosts(true);
     setSocialPostGeneratingStatus(Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => true));
@@ -335,16 +346,10 @@ function MainApp() {
 
     try {
       for (let i = 0; i < SOCIAL_POST_IMAGE_SLOT_COUNT; i += 1) {
-        const fallbackLockup = buildFallbackSocialPostLockup({
-          category: state.socialPostCategory,
-          language: state.socialPostLanguage,
-          productName: state.productName,
-          featureName: state.featureName,
-        });
         const plannedPrompt = state.socialPostPromptPlans[i]?.trim()
           || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
-        const plannedHeadline = state.socialPostHeadlinePlans[i]?.trim() || fallbackLockup.headline;
-        const plannedSubheadline = state.socialPostSubheadlinePlans[i]?.trim() || fallbackLockup.subheadline;
+        const plannedHeadline = sharedHeadline;
+        const plannedSubheadline = sharedSubheadline;
 
         const visual = await generateSocialPostVisual({
           productName: state.productName,
@@ -508,43 +513,48 @@ function MainApp() {
     const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
       ? state.socialPostReferenceImage
       : null;
-    const plannedPlan = state.socialPostPromptPlans[index] && state.socialPostHeadlinePlans[index]
+    const sharedHeadline = state.socialPostHeadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim();
+    const sharedSubheadline = state.socialPostSubheadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim();
+    const previousSocialPostVisual = state.socialPostFinalVisuals[index] || undefined;
+    const magicEditPlan = await planSocialPostPrompt({
+      productName: state.productName,
+      featureName: state.featureName,
+      description: state.description,
+      platform: state.socialPostPlatform,
+      theme: state.socialPostTheme,
+      category: state.socialPostCategory,
+      language: state.socialPostLanguage,
+      focus,
+      blogContent: state.socialPostBlogContent,
+      extraInstruction: comment,
+      variationIndex: index,
+      hasReferenceImage: Boolean(socialPostReferenceImage),
+    });
+    const fallbackPlan = state.socialPostPromptPlans[index]
       ? {
           prompt: state.socialPostPromptPlans[index],
-          headline: state.socialPostHeadlinePlans[index],
-          subheadline: state.socialPostSubheadlinePlans[index],
+          headline: sharedHeadline || state.socialPostHeadlinePlans[index],
+          subheadline: sharedSubheadline || state.socialPostSubheadlinePlans[index],
         }
-      : await planSocialPostPrompt({
-        productName: state.productName,
-        featureName: state.featureName,
-        description: state.description,
-        platform: state.socialPostPlatform,
-        theme: state.socialPostTheme,
-        category: state.socialPostCategory,
-        language: state.socialPostLanguage,
-        focus,
-        blogContent: state.socialPostBlogContent,
-        extraInstruction: '',
-        variationIndex: index,
-        hasReferenceImage: Boolean(socialPostReferenceImage),
-      });
+      : null;
     const fallbackLockup = buildFallbackSocialPostLockup({
       category: state.socialPostCategory,
       language: state.socialPostLanguage,
       productName: state.productName,
       featureName: state.featureName,
     });
-    const plannedPrompt = plannedPlan?.prompt?.trim()
+    const plannedPrompt = magicEditPlan?.prompt?.trim()
+      || fallbackPlan?.prompt?.trim()
       || `Premium ${state.socialPostPlatform} social page post visual in the selected house style.`;
-    const plannedHeadline = plannedPlan?.headline?.trim() || fallbackLockup.headline;
-    const plannedSubheadline = plannedPlan?.subheadline?.trim() || fallbackLockup.subheadline;
+    const plannedHeadline = sharedHeadline || magicEditPlan?.headline?.trim() || fallbackPlan?.headline?.trim() || fallbackLockup.headline;
+    const plannedSubheadline = sharedSubheadline || magicEditPlan?.subheadline?.trim() || fallbackPlan?.subheadline?.trim() || fallbackLockup.subheadline;
 
     setState((prev) => {
       const nextHeadlines = [...prev.socialPostHeadlinePlans];
       const nextSubheadlines = [...prev.socialPostSubheadlinePlans];
       const nextPlans = [...prev.socialPostPromptPlans];
-      nextHeadlines[index] = plannedHeadline;
-      nextSubheadlines[index] = plannedSubheadline;
+      nextHeadlines.fill(plannedHeadline);
+      nextSubheadlines.fill(plannedSubheadline);
       nextPlans[index] = plannedPrompt;
       return {
         ...prev,
@@ -569,7 +579,7 @@ function MainApp() {
       category: state.socialPostCategory,
       focus,
       referenceImage: socialPostReferenceImage,
-      previousImage: state.socialPostFinalVisuals[index] || undefined,
+      previousImage: previousSocialPostVisual,
       userComment: comment,
     });
     const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);

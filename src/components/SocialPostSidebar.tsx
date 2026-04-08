@@ -122,12 +122,12 @@ export function SocialPostSidebar({
       const nextVisuals = [...prev.socialPostFinalVisuals];
 
       if (field === 'headline') {
-        nextHeadlines[index] = value;
+        nextHeadlines.fill(value);
       } else {
-        nextSubheadlines[index] = value;
+        nextSubheadlines.fill(value);
       }
 
-      nextVisuals[index] = null;
+      nextVisuals.fill(null);
 
       return {
         ...prev,
@@ -432,7 +432,7 @@ export function SocialPostSidebar({
                             <div className="space-y-3">
                               <div className="space-y-1">
                                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                                  Planned Headline
+                                  Shared Headline
                                 </label>
                                 <input
                                   type="text"
@@ -445,7 +445,7 @@ export function SocialPostSidebar({
 
                               <div className="space-y-1">
                                 <label className="block text-[11px] font-semibold uppercase tracking-widest text-zinc-500">
-                                  Planned Subheadline
+                                  Shared Subheadline
                                 </label>
                                 <textarea
                                   value={state.socialPostSubheadlinePlans[index] || ''}
@@ -471,7 +471,7 @@ export function SocialPostSidebar({
                           </div>
                         ) : (
                           <div className="mt-3 rounded-xl border border-dashed border-zinc-200 bg-zinc-50 p-3 text-[11px] leading-5 text-zinc-500">
-                            Run Plan 4 copy to generate editable lockup text and the Gemini planner prompt for this variation.
+                            Run Plan shared copy to generate editable lockup text and the Gemini planner prompt for this variation.
                           </div>
                         )}
                       </div>
@@ -520,12 +520,12 @@ export function SocialPostSidebar({
             {isPlanningCopy ? (
               <span className="flex items-center">
                 <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                Planning 4 copy...
+                Planning shared copy...
               </span>
             ) : (
               <span className="flex items-center">
                 <LayoutTemplate className="mr-2 h-4 w-4" />
-                Plan 4 copy
+                Plan shared copy
               </span>
             )}
           </button>
@@ -549,7 +549,7 @@ export function SocialPostSidebar({
           </button>
 
           <p className="px-1 text-[11px] leading-5 text-zinc-500">
-            Review or edit the planned headline and subheadline first. Generate 4 visuals uses the current copy, focus, and planned Gemini prompt together.
+            Review or edit the shared headline and subheadline first. Generate 4 visuals uses the same copy with different planned Gemini prompts.
           </p>
         </div>
       </div>

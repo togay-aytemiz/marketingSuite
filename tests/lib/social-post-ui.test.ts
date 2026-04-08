@@ -24,10 +24,13 @@ test('social post sidebar exposes the requested controls without redundant flow 
   assert.match(source, /Focus \/ Extra Direction/);
   assert.match(source, /Optional UI Source/);
   assert.match(source, /Blog Metni/);
-  assert.match(source, /Plan 4 copy/);
+  assert.match(source, /Plan shared copy/);
+  assert.doesNotMatch(source, /Plan 4 copy/);
   assert.match(source, /Generate 4 visuals/);
-  assert.match(source, /Planned Headline/);
-  assert.match(source, /Planned Subheadline/);
+  assert.match(source, /Shared Headline/);
+  assert.match(source, /Shared Subheadline/);
+  assert.match(source, /nextHeadlines\.fill\(value\)/);
+  assert.match(source, /nextSubheadlines\.fill\(value\)/);
   assert.match(source, /state\.socialPostCategory === 'blog'/);
   assert.doesNotMatch(source, /socialPostImageInstructions\[index\]/);
   assert.doesNotMatch(source, /Gemini should use it as UI source material for the final marketing visual/i);
@@ -47,6 +50,27 @@ test('social post app wiring separates copy planning from visual rendering', () 
   assert.match(appSource, /handleGenerateSocialPostVisuals/);
   assert.match(appSource, /onPlanCopy=\{handlePlanSocialPosts\}/);
   assert.match(appSource, /onGenerateVisuals=\{handleGenerateSocialPostVisuals\}/);
+});
+
+test('social post planning reuses one shared headline and subheadline across all visual variations', () => {
+  const appSource = readFileSync(path.join(process.cwd(), 'src', 'App.tsx'), 'utf8');
+
+  assert.match(appSource, /let sharedHeadline/);
+  assert.match(appSource, /let sharedSubheadline/);
+  assert.match(appSource, /nextHeadlines\[i\] = sharedHeadline/);
+  assert.match(appSource, /nextSubheadlines\[i\] = sharedSubheadline/);
+  assert.match(appSource, /state\.socialPostHeadlinePlans\.find/);
+  assert.match(appSource, /state\.socialPostSubheadlinePlans\.find/);
+});
+
+test('social post magic edit replans the visual prompt from the user feedback before rendering', () => {
+  const appSource = readFileSync(path.join(process.cwd(), 'src', 'App.tsx'), 'utf8');
+
+  assert.match(appSource, /const magicEditPlan = await planSocialPostPrompt/);
+  assert.match(appSource, /extraInstruction:\s*comment/);
+  assert.match(appSource, /magicEditPlan\?\.prompt\?\.trim\(\)/);
+  assert.match(appSource, /const previousSocialPostVisual = state\.socialPostFinalVisuals\[index\] \|\| undefined/);
+  assert.match(appSource, /previousImage:\s*previousSocialPostVisual/);
 });
 
 test('social post sidebar mirrors visual creator style with collapsible sections', () => {

@@ -327,6 +327,7 @@ async function startServer() {
             blogContent: req.body.blogContent,
             extraInstruction: req.body.extraInstruction,
             variationIndex: req.body.variationIndex,
+            hasReferenceImage: req.body.hasReferenceImage,
           });
           break;
         case 'extract-color-palette':

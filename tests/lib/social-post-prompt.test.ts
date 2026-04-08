@@ -104,7 +104,7 @@ test('social post planner prompt tells AI to decide focus and visual hint when t
 
   assert.match(prompt, /FOCUS:\s+AI should decide the strongest focus/i);
   assert.match(prompt, /VISUAL HINT:\s+AI should decide the clearest visual hint/i);
-  assert.match(prompt, /If text is ever rendered later, it must be in Turkish/i);
+  assert.match(prompt, /Any visible text in the final render must be in Turkish/i);
 });
 
 test('social post planner prompt allows restrained gradients and pattern detail instead of flat monochrome output', () => {
@@ -229,8 +229,31 @@ test('social post planner prompt treats example labels as semantic guidance inst
 
   assert.match(prompt, /Any example words, labels, status names, chip text, or focus phrases are semantic guidance only/i);
   assert.match(prompt, /Do not instruct Gemini to render those words literally on canvas/i);
-  assert.match(prompt, /If microcopy ever becomes unavoidable later, it must be in Turkish only/i);
-  assert.match(prompt, /Keep UI panels, badges, profile cards, and score indicators free of readable microcopy/i);
+  assert.match(prompt, /Any intentional microcopy must be short, readable, and in Turkish only/i);
+  assert.match(prompt, /If supporting UI copy is intentionally visible, keep it short, sparse, and readable in Turkish/i);
+  assert.match(prompt, /Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders/i);
+});
+
+test('social post planner prompt strictly localizes every visible conversation and ui string for Turkish visuals', () => {
+  const prompt = buildSocialPostPlannerPrompt({
+    productName: 'Qualy',
+    featureName: 'Lead Scoring',
+    description: 'Qualify conversations with simple lead categories.',
+    platform: 'Instagram',
+    theme: 'light',
+    category: 'product_overview',
+    language: 'TR',
+    focus: 'Instagram mesajlarını otomatik yanıtla',
+    extraInstruction: '',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be Turkish/i);
+  assert.match(prompt, /Do not render mixed-language or pseudo-Turkish strings/i);
+  assert.match(prompt, /Avoid readable English terms such as "Lead Scoring", "High Score", "Assistant", or "AI response"/i);
+  assert.match(prompt, /Turkish ad copy must stay readable, not blurred or hidden/i);
+  assert.match(prompt, /Use short natural Turkish phrases for visible chat and support messages/i);
+  assert.doesNotMatch(prompt, /make the supporting UI text unreadable/i);
 });
 
 test('social post planner prompt avoids standalone logo placements while keeping ui marks non-focal', () => {
@@ -272,8 +295,8 @@ test('social post planner prompt preserves white reference ui surfaces and local
   assert.match(prompt, /Use one localized accent, outline, glow, crop, or contrast lift to make the requested focus read first/i);
   assert.match(prompt, /Do not reinterpret the source as a dark fantasy dashboard or generic glass cards/i);
   assert.match(prompt, /Never preserve personal names, usernames, initials, or profile photos from the reference/i);
-  assert.match(prompt, /Blur, simplify, or regenerate avatars into generic fictional profile markers/i);
-  assert.match(prompt, /If an identity label must survive, replace it with a fictional localized placeholder or make it unreadable/i);
+  assert.match(prompt, /Simplify or regenerate avatars into generic fictional profile markers/i);
+  assert.match(prompt, /If an identity label must survive, replace it with a fictional localized placeholder or omit the non-essential label/i);
 });
 
 test('social post preview meta makes blog/article intent explicit in the card header', () => {

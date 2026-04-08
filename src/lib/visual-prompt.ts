@@ -210,7 +210,7 @@ VISUAL SOURCE CONTEXT:
 - Preserve recognizable panel geometry, spacing, and hierarchy from the source UI.
 - Simplify only dense microcopy, tiny labels, or non-essential dashboard chrome.
 - If the screenshot contains white or light surfaces, keep them crisp and solid instead of turning them into glassy abstractions.
-- Never preserve real names, usernames, or profile photos from the screenshot; blur or replace them with generic fictional markers.
+- Never preserve real names, usernames, or profile photos from the screenshot; replace them with generic fictional markers.
 - Any visible UI text must be rendered in ${outputLanguage}.
 `.trim();
   }
@@ -223,7 +223,7 @@ VISUAL SOURCE CONTEXT:
 - Preserve recognizable panel geometry, spacing, and hierarchy from that source.
 - Keep white or light surfaces crisp, solid, and product-real.
 - Use one localized accent or contrast lift to emphasize the main focus instead of restyling the whole frame.
-- Never preserve real names, usernames, or profile photos from that source; blur or replace them with generic fictional markers.
+- Never preserve real names, usernames, or profile photos from that source; replace them with generic fictional markers.
 `.trim();
   }
 
@@ -283,7 +283,8 @@ function buildFeedbackInstruction(userComment?: string) {
 USER FEEDBACK TO APPLY:
 "${normalized}"
 
-- The new direction must incorporate this feedback without breaking the house style.
+- The edited image must visibly apply the user feedback without breaking the house style.
+- Do not return a near-identical image when the feedback asks for a concrete change.
 `.trim();
 }
 
@@ -338,44 +339,50 @@ function buildMandatoryCopyRule(includeCta: boolean) {
 function buildMandatoryCopyBlock(headline: string, subheadline: string, cta: string, includeCta: boolean) {
   if (!includeCta) {
     return `
-MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
-Headline: ${headline || '[Auto-generated headline]'}
-Subheadline: ${subheadline || '[Auto-generated subheadline]'}
-CTA: none
+MANDATORY TEXT VALUES TO INCLUDE IN THE FINAL IMAGE:
+Exact headline text for the final image: ${headline || '[Auto-generated headline]'}
+Exact subheadline text for the final image: ${subheadline || '[Auto-generated subheadline]'}
+No CTA text should appear.
 
 - CTA is disabled for this visual.
 - Use headline and subheadline only.
 - Do not add any button label, action chip, footer CTA, or invented action copy.
+- Do not render field labels such as "Headline", "Subheadline", "CTA", or "Call to Action"; those are prompt field names only.
 `.trim();
   }
 
   return `
-MANDATORY TEXT TO INCLUDE IN THE FINAL IMAGE:
-Headline: ${headline || '[Auto-generated headline]'}
-Subheadline: ${subheadline || '[Auto-generated subheadline]'}
-Call to Action (CTA) Button: ${cta || '[Auto-generated CTA]'}
+MANDATORY TEXT VALUES TO INCLUDE IN THE FINAL IMAGE:
+Exact headline text for the final image: ${headline || '[Auto-generated headline]'}
+Exact subheadline text for the final image: ${subheadline || '[Auto-generated subheadline]'}
+Exact button text for the final image: ${cta || '[Auto-generated CTA]'}
+
+- Do not render field labels such as "Headline", "Subheadline", "CTA", "Call to Action", or "Button"; those are prompt field names only.
 `.trim();
 }
 
 function buildRenderCopyBlock(headline: string, subheadline: string, cta: string, includeCta: boolean) {
   if (!includeCta) {
     return `
-MANDATORY TEXT TO RENDER:
-Headline: ${headline || '[Auto-generated headline]'}
-Subheadline: ${subheadline || '[Auto-generated subheadline]'}
-CTA: none
+MANDATORY TEXT VALUES TO RENDER:
+Exact headline text to render: ${headline || '[Auto-generated headline]'}
+Exact subheadline text to render: ${subheadline || '[Auto-generated subheadline]'}
+No CTA text should be rendered.
 
 - CTA is disabled for this visual.
 - Render headline and subheadline only.
 - Do not add any button label, action chip, footer CTA, or invented action copy.
+- Do not render field labels such as "Headline", "Subheadline", "CTA", or "Call to Action"; those are prompt field names only.
 `.trim();
   }
 
   return `
-MANDATORY TEXT TO RENDER:
-Headline: ${headline || '[Auto-generated headline]'}
-Subheadline: ${subheadline || '[Auto-generated subheadline]'}
-Call to Action (CTA) Button: ${cta || '[Auto-generated CTA]'}
+MANDATORY TEXT VALUES TO RENDER:
+Exact headline text to render: ${headline || '[Auto-generated headline]'}
+Exact subheadline text to render: ${subheadline || '[Auto-generated subheadline]'}
+Exact button text to render: ${cta || '[Auto-generated CTA]'}
+
+- Do not render field labels such as "Headline", "Subheadline", "CTA", "Call to Action", or "Button"; those are prompt field names only.
 `.trim();
 }
 
@@ -384,10 +391,33 @@ function buildNoVisibleCopyBlock(outputLanguage: string) {
 NO VISIBLE COPY:
 - Do not render any headline, subheadline, CTA, paragraph text, numbers, UI labels, status chips, button copy, tooltip copy, or metric pills.
 - Do not render literal words from the prompt. Treat quoted terms, focus phrases, example labels, chip names, status names, and taxonomy words as semantic guidance only.
-- If a UI element needs textual structure, replace it with abstract lines, neutral bars, dots, icons, or unreadable placeholders.
+- If a UI element needs textual structure, replace it with abstract lines, neutral bars, dots, icons, or no-text placeholders.
 - Do not add standalone logos or decorative brand marks.
 - If any readable text survives, it must be in ${outputLanguage} only.
 - Leave clean composition space where editorial copy could be added later, but keep the generated image itself text-free.
+`.trim();
+}
+
+function buildVisibleTextLanguageLock(outputLanguage: string) {
+  if (outputLanguage === 'Turkish') {
+    return `
+TURKISH VISIBLE TEXT LOCK:
+- Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be Turkish with natural Turkish characters.
+- Do not render mixed-language or pseudo-Turkish strings; no gibberish, malformed words, or partial translations.
+- Avoid readable English terms such as "Lead Scoring", "High Score", "Assistant", or "AI response"; use Turkish equivalents only when supporting text is truly necessary.
+- Turkish ad copy must stay crisp, legible, and readable; do not blur, crop, hide, or skeletonize intended copy.
+- If a chat bubble, message, reply, label, callout, status chip, score indicator, or UI text is intentionally visible, render it as short readable Turkish.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders; never apply this to intended ad copy, message copy, or callout copy.
+`.trim();
+  }
+
+  return `
+VISIBLE TEXT LANGUAGE LOCK:
+- Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be in ${outputLanguage}.
+- Do not render mixed-language strings, pseudo-language gibberish, malformed words, or partial translations.
+- ${outputLanguage} ad copy must stay crisp, legible, and readable; do not blur, crop, hide, or skeletonize intended copy.
+- If a chat bubble, message, reply, label, callout, status chip, score indicator, or UI text is intentionally visible, render it as short readable ${outputLanguage}.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders; never apply this to intended ad copy, message copy, or callout copy.
 `.trim();
 }
 
@@ -561,8 +591,10 @@ export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
   if (input.previousImage) {
     assetInstruction = `
 EDIT MODE:
-- Edit the provided generated image instead of rebuilding from zero.
+- The first attached image is the current generated visual to edit.
+- Edit that provided generated image instead of rebuilding from zero.
 - Keep the strongest existing composition choices unless the feedback requires a stronger change.
+- The output must visibly apply the user feedback while preserving the supplied headline and subheadline copy.
 `.trim();
   } else if (input.images.length > 0) {
     assetInstruction = `
@@ -578,7 +610,7 @@ REFERENCE-LED COMPOSITION:
 - Build the composition around the uploaded reference UI rather than inventing a different dashboard.
 - Preserve the strongest panel structure and simplify only non-essential microcopy or chrome.
 - Keep white or light surfaces crisp, bright, and product-real.
-- Replace source-specific people identifiers and profile photos with fictional or blurred markers.
+- Replace source-specific people identifiers and profile photos with fictional or generic markers.
 `.trim();
   } else {
     assetInstruction = `
@@ -596,10 +628,10 @@ REFERENCE IMAGE HANDLING:
 - Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard.
 - Use 1-3 focused crops or panels from the reference.
 - Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift.
-- Simplify or blur dense microcopy, but keep the product surface feeling real and close to the source.
+- Simplify dense non-essential microcopy into no-text placeholders, but keep the product surface feeling real and close to the source.
 - Never preserve real names, usernames, initials, avatar photos, or face crops from the reference.
-- Blur, simplify, or regenerate avatars into generic fictional profile markers.
-- If a tiny identity label survives, replace it with a fictional localized placeholder or make it unreadable.
+- Simplify or regenerate avatars into generic fictional profile markers.
+- If a tiny identity label survives, replace it with a fictional localized placeholder or omit the non-essential label.
 - Do not copy its exact readable text, product copy, or layout verbatim.
 `.trim()
     : '';
@@ -629,15 +661,18 @@ BRAND REFERENCES:
     ? `RENDERER RULES:
 - All visible text must be in ${outputLanguage}.
 - Only the supplied headline, subheadline, and CTA (if enabled) may appear as readable copy.
-- Keep any supporting UI copy abstract, blurred, cropped, or unreadable.
+- Do not render prompt field names such as "Headline", "Subheadline", "CTA", or "Call to Action" as visible words.
+${buildVisibleTextLanguageLock(outputLanguage)}
+- If supporting UI copy is intentionally visible, keep it short, sparse, and readable in ${outputLanguage}.
+- Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders.
 - Do not invent extra readable labels, status words, chip text, button text, tooltip copy, or metric pills.
-- Do not render readable UI headers, field labels, card titles, person names, score badges, percentages, list rows, profile names, or assistant labels.
+- Do not render English or malformed UI headers, field labels, card titles, person names, score badges, percentages, list rows, profile names, or assistant labels.
 - Do not reproduce prompt phrases like "Customer Info", "customer profiles", "High score", "Lead Score", or "AI Automated Response" as visible UI text.
 - ${outputLanguage === 'Turkish' ? 'Never render English words from the planned prompt, internal reasoning, or example UI labels.' : `Never render readable words in a language other than ${outputLanguage}.`}
-- ${outputLanguage === 'Turkish' ? 'If a supporting label is unavoidable, translate it into Turkish or make it unreadable.' : `If a supporting label is unavoidable, translate it into ${outputLanguage} or make it unreadable.`}
+- ${outputLanguage === 'Turkish' ? 'If a supporting label is unavoidable, translate it into short readable Turkish or omit the non-essential label.' : `If a supporting label is unavoidable, translate it into short readable ${outputLanguage} or omit the non-essential label.`}
 - Never preserve imported names, usernames, initials, or identity tags from screenshots or reference images.
-- Blur, simplify, or regenerate avatar/profile photos into generic fictional profile markers instead of keeping real faces.
-- ${outputLanguage === 'Turkish' ? 'If an identity label is unavoidable, replace it with a fictional Turkish placeholder or make it unreadable.' : `If an identity label is unavoidable, replace it with a fictional ${outputLanguage} placeholder or make it unreadable.`}
+- Simplify or regenerate avatar/profile photos into generic fictional profile markers instead of keeping real faces.
+- ${outputLanguage === 'Turkish' ? 'If an identity label is unavoidable, replace it with a fictional Turkish placeholder or omit the non-essential label.' : `If an identity label is unavoidable, replace it with a fictional ${outputLanguage} placeholder or omit the non-essential label.`}
 - Do not clutter the image.
 - Preserve the ${VISUAL_HOUSE_STYLE.name} house style and keep one dominant subject only.
 - Keep supporting details sparse and subordinate.
@@ -645,6 +680,8 @@ BRAND REFERENCES:
     : `RENDERER RULES:
 - Keep the image strictly text-free. The planned prompt, focus field, reference examples, and category labels are compositional guidance only, not literal on-canvas copy.
 - Never render English placeholder words, sample chip labels, taxonomies, or status names just because they appear in the prompt.
+- Do not render prompt field names such as "Headline", "Subheadline", "CTA", or "Call to Action" as visible words.
+${buildVisibleTextLanguageLock(outputLanguage)}
 - Do not clutter the image.
 - Preserve the ${VISUAL_HOUSE_STYLE.name} house style and keep one dominant subject only.
 - Keep supporting details sparse and subordinate.

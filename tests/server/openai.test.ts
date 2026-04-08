@@ -422,6 +422,7 @@ test('generateSocialPostPromptPlan requests a Gemini-ready prompt for social pag
     assert.match(prompts[0] || '', /If focus is provided, the headline and subheadline must stay anchored to that focus/i);
     assert.match(prompts[0] || '', /Treat focus as the primary campaign angle for visible copy, not as a literal phrase to repeat word-for-word/i);
     assert.match(prompts[0] || '', /Do not let background product context, project naming, or dominant channel references override the user-provided focus/i);
+    assert.match(prompts[0] || '', /Treat the headline and subheadline as shared campaign copy that can be reused across all four visual variations/i);
     assert.match(prompts[0] || '', /Do not plan standalone decorative logo placements or make the composition revolve around a logo/i);
     assert.match(prompts[0] || '', /If the product ui naturally contains a brand mark, it may appear there, but it should stay non-focal/i);
     assert.match(prompts[0] || '', /VARIATION DIRECTION:/i);
@@ -491,7 +492,7 @@ test('generateSocialPostPromptPlan tells the planner to keep focus as the main c
   }
 });
 
-test('generateSocialPostPromptPlan strips wrapping quotation marks from planned lockup copy', async () => {
+test('generateSocialPostPromptPlan strips field labels and wrapping quotation marks from planned lockup copy', async () => {
   const originalFetch = global.fetch;
   const originalOpenAiKey = process.env.OPENAI_API_KEY;
 
@@ -505,8 +506,8 @@ test('generateSocialPostPromptPlan strips wrapping quotation marks from planned 
             message: {
               content: JSON.stringify({
                 prompt: 'Gemini prompt for a premium Instagram social post visual.',
-                headline: '“Qualy ile Etkili İletişim”',
-                subheadline: '"Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin."',
+                headline: 'Headline: “Qualy ile Etkili İletişim”',
+                subheadline: 'Subheadline: "Yapay zeka destekli akıllı asistanınız, müşteri ilişkilerinizi güçlendirsin."',
                 styleName: 'Social Post System',
               }),
             },
@@ -655,7 +656,7 @@ test('generateSocialPostPromptPlan preserves white source ui surfaces when a ref
     assert.match(prompts[0] || '', /Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass/i);
     assert.match(prompts[0] || '', /Do not reinterpret the source as a dark fantasy dashboard or generic glass cards/i);
     assert.match(prompts[0] || '', /Never preserve personal names, usernames, initials, or profile photos from the reference/i);
-    assert.match(prompts[0] || '', /Blur, simplify, or regenerate avatars into generic fictional profile markers/i);
+    assert.match(prompts[0] || '', /Simplify or regenerate avatars into generic fictional profile markers/i);
   } finally {
     global.fetch = originalFetch;
     process.env.OPENAI_API_KEY = originalOpenAiKey;
