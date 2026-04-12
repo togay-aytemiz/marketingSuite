@@ -279,7 +279,7 @@ test('planSocialPostPrompt sends theme, category, and per-image focus to the bac
   global.fetch = originalFetch;
 });
 
-test('generateSocialPostVisual renders planned headline copy while keeping brand references optional and non-forcing', async () => {
+test('generateSocialPostVisual asks Gemini for a text-free base while passing lockup copy through for app overlay', async () => {
   const originalFetch = global.fetch;
   let payload: Record<string, unknown> | null = null;
 
@@ -327,7 +327,7 @@ test('generateSocialPostVisual renders planned headline copy while keeping brand
   assert.equal(payload?.headline, 'Önemli sohbetleri önce gör');
   assert.equal(payload?.subheadline, 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.');
   assert.equal(payload?.referenceImage, 'data:image/png;base64,reference');
-  assert.equal(payload?.renderText, true);
+  assert.equal(payload?.renderText, false);
   assert.equal(payload?.includeCta, false);
   assert.equal(payload?.attachBrandReferences, true);
   assert.equal(payload?.brandReferenceTheme, 'light');

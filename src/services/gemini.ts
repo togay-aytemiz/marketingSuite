@@ -334,7 +334,7 @@ export async function generateSocialPostVisual(input: SocialPostVisualInput) {
     previousImage: input.previousImage,
     userComment: input.userComment,
     plannedPrompt: input.plannedPrompt,
-    renderText: true,
+    renderText: false,
     attachBrandReferences: true,
     brandReferenceTheme: input.theme,
     brandReferenceKind: 'logo',

@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { SocialPostSidebar } from './components/SocialPostSidebar';
 import { VisualPreview } from './components/VisualPreview';
@@ -24,6 +24,7 @@ import {
   supportsSocialPostReferenceImage,
 } from './lib/social-post-prompt';
 import { fitGeneratedVisualToAspectRatio } from './lib/visual-aspect-ratio';
+import { composeSocialPostVisualWithCopy } from './lib/social-post-compositor';
 import { Settings, PenTool, Image as ImageIcon, Database, LayoutTemplate } from 'lucide-react';
 import {
   checkIntegrationEndpoints,
@@ -39,6 +40,8 @@ export default function App() {
 }
 
 const STORAGE_KEY = 'marketing_suite_state';
+const createEmptySocialPostSlots = () =>
+  Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null);
 
 function MainApp() {
   const [state, setState] = useState<AppState>(() => hydrateAppState(localStorage.getItem(STORAGE_KEY)));
@@ -61,6 +64,7 @@ function MainApp() {
   const [integrationEndpointChecks, setIntegrationEndpointChecks] = useState<IntegrationEndpointCheck[]>([]);
   const [isSyncingCategories, setIsSyncingCategories] = useState(false);
   const [categorySyncStatus, setCategorySyncStatus] = useState<string | null>(null);
+  const socialPostBaseVisualsRef = useRef<(string | null)[]>(createEmptySocialPostSlots());
 
   const loadStatus = async () => {
     try {
@@ -114,9 +118,6 @@ function MainApp() {
   useEffect(() => {
     void loadStatus();
   }, []);
-
-  const createEmptySocialPostSlots = () =>
-    Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => null);
 
   const hasSocialPostPlans = state.socialPostPromptPlans.some((value) => String(value || '').trim().length > 0);
 
@@ -263,6 +264,7 @@ function MainApp() {
       socialPostPromptPlans: createEmptySocialPostSlots(),
       socialPostFinalVisuals: createEmptySocialPostSlots(),
     }));
+    socialPostBaseVisualsRef.current = createEmptySocialPostSlots();
 
     const focus = resolveSocialPostFocus(state.socialPostFocus);
     const socialPostReferenceImage = supportsSocialPostReferenceImage(state.socialPostCategory)
@@ -339,6 +341,7 @@ function MainApp() {
 
     setIsRenderingSocialPosts(true);
     setSocialPostGeneratingStatus(Array.from({ length: SOCIAL_POST_IMAGE_SLOT_COUNT }, () => true));
+    socialPostBaseVisualsRef.current = createEmptySocialPostSlots();
     setState((prev) => ({
       ...prev,
       socialPostFinalVisuals: createEmptySocialPostSlots(),
@@ -369,10 +372,18 @@ function MainApp() {
         });
 
         const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
+        const baseVisual = fittedVisual || visual;
+        socialPostBaseVisualsRef.current[i] = baseVisual;
+        const compositedVisual = await composeSocialPostVisualWithCopy(baseVisual, {
+          headline: plannedHeadline,
+          subheadline: plannedSubheadline,
+          theme: state.socialPostTheme,
+          brandName: state.productName,
+        });
 
         setState((prev) => {
           const nextVisuals = [...prev.socialPostFinalVisuals];
-          nextVisuals[i] = fittedVisual || visual;
+          nextVisuals[i] = compositedVisual || baseVisual;
           return {
             ...prev,
             socialPostFinalVisuals: nextVisuals,
@@ -515,7 +526,9 @@ function MainApp() {
       : null;
     const sharedHeadline = state.socialPostHeadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim();
     const sharedSubheadline = state.socialPostSubheadlinePlans.find((value) => String(value || '').trim().length > 0)?.trim();
-    const previousSocialPostVisual = state.socialPostFinalVisuals[index] || undefined;
+    const previousBaseVisual = state.socialPostFinalVisuals[index]
+      ? socialPostBaseVisualsRef.current[index]
+      : null;
     const magicEditPlan = await planSocialPostPrompt({
       productName: state.productName,
       featureName: state.featureName,
@@ -579,14 +592,22 @@ function MainApp() {
       category: state.socialPostCategory,
       focus,
       referenceImage: socialPostReferenceImage,
-      previousImage: previousSocialPostVisual,
+      previousImage: previousBaseVisual || undefined,
       userComment: comment,
     });
     const fittedVisual = await fitGeneratedVisualToAspectRatio(visual, aspectRatio);
+    const baseVisual = fittedVisual || visual;
+    socialPostBaseVisualsRef.current[index] = baseVisual;
+    const compositedVisual = await composeSocialPostVisualWithCopy(baseVisual, {
+      headline: plannedHeadline,
+      subheadline: plannedSubheadline,
+      theme: state.socialPostTheme,
+      brandName: state.productName,
+    });
 
     setState((prev) => {
       const nextVisuals = [...prev.socialPostFinalVisuals];
-      nextVisuals[index] = fittedVisual || visual;
+      nextVisuals[index] = compositedVisual || baseVisual;
       return {
         ...prev,
         socialPostFinalVisuals: nextVisuals,

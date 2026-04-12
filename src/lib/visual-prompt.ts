@@ -392,9 +392,30 @@ NO VISIBLE COPY:
 - Do not render any headline, subheadline, CTA, paragraph text, numbers, UI labels, status chips, button copy, tooltip copy, or metric pills.
 - Do not render literal words from the prompt. Treat quoted terms, focus phrases, example labels, chip names, status names, and taxonomy words as semantic guidance only.
 - If a UI element needs textual structure, replace it with abstract lines, neutral bars, dots, icons, or no-text placeholders.
+- Do not render gibberish, pseudo-language, Cyrillic-like or Latin-like fake interface text, stray numbers, or unreadable word fragments.
 - Do not add standalone logos or decorative brand marks.
 - If any readable text survives, it must be in ${outputLanguage} only.
 - Leave clean composition space where editorial copy could be added later, but keep the generated image itself text-free.
+`.trim();
+}
+
+function buildNoVisibleTextLanguageLock(outputLanguage: string) {
+  if (outputLanguage === 'Turkish') {
+    return `
+TEXT-FREE TURKISH BASE LOCK:
+- Do not render Turkish ad copy in the base image; the app overlays final copy after generation.
+- Do not render readable UI microcopy, chat text, status chips, or label text.
+- Avoid English, Turkish-looking nonsense, pseudo-Turkish, no Cyrillic-like gibberish, malformed words, and partial translations.
+- Use abstract skeleton bars, dots, neutral chips, icon-only controls, and no-text placeholders instead of readable words.
+`.trim();
+  }
+
+  return `
+TEXT-FREE ${outputLanguage.toUpperCase()} BASE LOCK:
+- Do not render ${outputLanguage} ad copy in the base image; the app overlays final copy after generation.
+- Do not render readable UI microcopy, chat text, status chips, or label text.
+- Avoid mixed-language strings, pseudo-language, no Cyrillic-like gibberish, malformed words, and partial translations.
+- Use abstract skeleton bars, dots, neutral chips, icon-only controls, and no-text placeholders instead of readable words.
 `.trim();
 }
 
@@ -586,6 +607,12 @@ export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
     : detectRequestedChannels([input.plannedPrompt || '']);
   const channelPriorityBlock = buildChannelPriorityBlock(fallbackRequestedChannels);
   const channelAccentBlock = buildChannelAccentBlock(fallbackRequestedChannels);
+  const textFreeThemeGuardrail = !renderText && (input.theme || 'mixed') === 'dark'
+    ? '- Keep the generated base dark-dominant across the whole canvas; no bright white page takeover, no light-mode app screenshot, no pale document board.'
+    : '';
+  const textFreeSceneGuardrail = !renderText
+    ? '- Keep the base as a product marketing UI/abstract SaaS composition; no daylight photography, city, building, street, map, landscape, camera feed, or real-world location scene.'
+    : '';
 
   let assetInstruction = '';
   if (input.previousImage) {
@@ -681,7 +708,9 @@ ${buildVisibleTextLanguageLock(outputLanguage)}
 - Keep the image strictly text-free. The planned prompt, focus field, reference examples, and category labels are compositional guidance only, not literal on-canvas copy.
 - Never render English placeholder words, sample chip labels, taxonomies, or status names just because they appear in the prompt.
 - Do not render prompt field names such as "Headline", "Subheadline", "CTA", or "Call to Action" as visible words.
-${buildVisibleTextLanguageLock(outputLanguage)}
+${buildNoVisibleTextLanguageLock(outputLanguage)}
+${textFreeThemeGuardrail}
+${textFreeSceneGuardrail}
 - Do not clutter the image.
 - Preserve the ${VISUAL_HOUSE_STYLE.name} house style and keep one dominant subject only.
 - Keep supporting details sparse and subordinate.

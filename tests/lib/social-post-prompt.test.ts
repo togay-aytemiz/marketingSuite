@@ -104,7 +104,8 @@ test('social post planner prompt tells AI to decide focus and visual hint when t
 
   assert.match(prompt, /FOCUS:\s+AI should decide the strongest focus/i);
   assert.match(prompt, /VISUAL HINT:\s+AI should decide the clearest visual hint/i);
-  assert.match(prompt, /Any visible text in the final render must be in Turkish/i);
+  assert.match(prompt, /Any visible text in the final app-composited export must be in Turkish/i);
+  assert.match(prompt, /Gemini's base image should avoid readable text entirely/i);
 });
 
 test('social post planner prompt allows restrained gradients and pattern detail instead of flat monochrome output', () => {
@@ -213,6 +214,47 @@ test('social post planner prompt locks the four variations to the editorial crop
   assert.match(prompt, /2-3 modules together but keep them sparse/i);
 });
 
+test('social post planner prompt keeps the quiet fourth variation theme-locked and product-ui based', () => {
+  const prompt = buildSocialPostPlannerPrompt({
+    productName: 'Qualy',
+    featureName: 'AI Inbox',
+    description: 'Unified inbox for support and sales teams.',
+    platform: 'Instagram',
+    theme: 'dark',
+    category: 'product_overview',
+    language: 'TR',
+    focus: 'WhatsApp ciddi müşterileri öne çıkar',
+    extraInstruction: '',
+    variationIndex: 3,
+  });
+
+  assert.match(prompt, /Use more whitespace without abandoning the requested theme or product-UI base/i);
+  assert.match(prompt, /Keep at least one crisp SaaS UI fragment, panel, or product card clearly present/i);
+  assert.match(prompt, /Do not turn the quiet variation into photography, a real-world location scene, a map, or a bright document screenshot/i);
+  assert.match(prompt, /Every variation must remain a social page post base visual with product UI or abstract SaaS interface structure/i);
+  assert.match(prompt, /Never turn a variation into daylight photography, city\/building\/street imagery, map-like views, or a bright text-heavy screenshot/i);
+});
+
+test('social post planner prompt reserves clean space for app-rendered typography instead of Gemini text rendering', () => {
+  const prompt = buildSocialPostPlannerPrompt({
+    productName: 'Qualy',
+    featureName: 'AI Inbox',
+    description: 'Unified inbox for support and sales teams.',
+    platform: 'Instagram',
+    theme: 'dark',
+    category: 'product_overview',
+    language: 'TR',
+    focus: 'WhatsApp ciddi müşterileri öne çıkar',
+    extraInstruction: '',
+    variationIndex: 0,
+  });
+
+  assert.match(prompt, /The app will overlay the exact headline and subheadline after image generation/i);
+  assert.match(prompt, /Reserve a clean typography-safe zone/i);
+  assert.match(prompt, /Do not ask Gemini to render the headline or subheadline/i);
+  assert.match(prompt, /the generated base image itself should be text-free except for abstract no-text UI skeletons/i);
+});
+
 test('social post planner prompt treats example labels as semantic guidance instead of literal on-canvas copy', () => {
   const prompt = buildSocialPostPlannerPrompt({
     productName: 'Qualy',
@@ -229,12 +271,12 @@ test('social post planner prompt treats example labels as semantic guidance inst
 
   assert.match(prompt, /Any example words, labels, status names, chip text, or focus phrases are semantic guidance only/i);
   assert.match(prompt, /Do not instruct Gemini to render those words literally on canvas/i);
-  assert.match(prompt, /Any intentional microcopy must be short, readable, and in Turkish only/i);
+  assert.match(prompt, /Avoid intentional readable microcopy in the Gemini base image/i);
   assert.match(prompt, /If supporting UI copy is intentionally visible, keep it short, sparse, and readable in Turkish/i);
-  assert.match(prompt, /Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders/i);
+  assert.match(prompt, /Prefer abstract skeleton lines, dots, and no-text placeholders for decorative dense UI chrome/i);
 });
 
-test('social post planner prompt strictly localizes every visible conversation and ui string for Turkish visuals', () => {
+test('social post planner prompt keeps unavoidable base-image ui text Turkish while preferring no-text skeletons', () => {
   const prompt = buildSocialPostPlannerPrompt({
     productName: 'Qualy',
     featureName: 'Lead Scoring',
@@ -248,11 +290,12 @@ test('social post planner prompt strictly localizes every visible conversation a
     variationIndex: 0,
   });
 
-  assert.match(prompt, /Every visible conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text must be Turkish/i);
+  assert.match(prompt, /Gemini's base image should avoid readable conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text/i);
+  assert.match(prompt, /If any unavoidable visible UI text remains, it must be Turkish/i);
   assert.match(prompt, /Do not render mixed-language or pseudo-Turkish strings/i);
   assert.match(prompt, /Avoid readable English terms such as "Lead Scoring", "High Score", "Assistant", or "AI response"/i);
-  assert.match(prompt, /Turkish ad copy must stay readable, not blurred or hidden/i);
-  assert.match(prompt, /Use short natural Turkish phrases for visible chat and support messages/i);
+  assert.match(prompt, /Do not render Turkish ad copy in the base image/i);
+  assert.match(prompt, /If supporting chat or UI text is unavoidable, use short natural Turkish phrases/i);
   assert.doesNotMatch(prompt, /make the supporting UI text unreadable/i);
 });
 

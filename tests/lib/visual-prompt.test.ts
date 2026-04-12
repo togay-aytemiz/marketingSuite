@@ -435,6 +435,33 @@ test('buildGeminiRenderPrompt treats prompt example labels as semantic-only when
   assert.match(prompt, /If any readable text survives, it must be in Turkish only/i);
 });
 
+test('buildGeminiRenderPrompt keeps text-free social bases from inheriting visible-copy instructions', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Dark premium social page post visual with WhatsApp conversation cards and insight chips.',
+    headline: 'WhatsApp’ta ciddi müşteriyi anında ayır.',
+    subheadline: 'Qualy, sıcak talepleri ekibinin önüne taşır.',
+    cta: '',
+    includeCta: false,
+    renderText: false,
+    language: 'TR',
+    images: [],
+    featureName: 'AI Inbox',
+    brandName: 'Qualy',
+    theme: 'dark',
+    variationIndex: 3,
+    campaignType: 'Product overview',
+    campaignFocus: 'WhatsApp ciddi müşterileri öne çıkar',
+  });
+
+  assert.match(prompt, /Do not render Turkish ad copy in the base image/i);
+  assert.match(prompt, /Do not render readable UI microcopy, chat text, status chips, or label text/i);
+  assert.match(prompt, /no Cyrillic-like gibberish/i);
+  assert.match(prompt, /Keep the generated base dark-dominant across the whole canvas/i);
+  assert.match(prompt, /no daylight photography, city, building, street, map, landscape, camera feed, or real-world location scene/i);
+  assert.doesNotMatch(prompt, /Turkish ad copy must stay crisp/i);
+  assert.doesNotMatch(prompt, /If a chat bubble, message, reply, label, callout, status chip, score indicator, or UI text is intentionally visible/i);
+});
+
 test('buildGeminiRenderPrompt does not ask for standalone logo placement even when brand references exist', () => {
   const prompt = buildGeminiRenderPrompt({
     plannedPrompt: 'Premium social page post visual with one subtle corner logo.',
