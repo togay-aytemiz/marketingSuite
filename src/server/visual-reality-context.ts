@@ -19,6 +19,7 @@ const REPO_CONTEXT_ENV_VARS = [
 ] as const;
 
 const FILE_CANDIDATES = [
+  '.agents/product-marketing-context.md',
   'docs/PRD.md',
   'docs/ROADMAP.md',
   'docs/RELEASE.md',
@@ -168,6 +169,40 @@ function extractRealityFacts(markdownOrCode: string) {
 
   if (/\bhands chats to your team\b/i.test(normalized) || /\bhandoff\b/i.test(lower) || /\bescalation\b/i.test(lower)) {
     facts.push('Current product framing includes team handoff when conversation priority is high.');
+  }
+
+  if (
+    /\bqualy\s+ai\b/i.test(normalized)
+    && (
+      /\bai-powered unified inbox\b/i.test(normalized)
+      || /\bunified inbox\b/i.test(normalized)
+      || /\btek gelen kutusu\b/i.test(lower)
+    )
+  ) {
+    facts.push('Launch/social visuals should frame the AI actor as Qualy AI managing an AI-powered unified inbox, not as a generic shared inbox or human assistant.');
+  }
+
+  if (/\bqualy\b/i.test(normalized) && /\bwordmark\b|\blogo\b/i.test(normalized)) {
+    facts.push('Launch/social visuals should keep a visible Qualy wordmark or logo when brand context is required, using official brand references instead of invented logo forms.');
+  }
+
+  if (/\bqualy\s+ai\b/i.test(normalized) && (/\bassistant\b/i.test(normalized) || /\basistan\b/i.test(lower) || /\bhuman avatar\b/i.test(normalized))) {
+    facts.push('When an AI actor is shown, label it Qualy AI or AI request summary; do not use a human avatar or bare Assistant/asistan labels.');
+  }
+
+  if (
+    CHANNEL_PATTERNS.every(({ pattern }) => pattern.test(normalized))
+    && (
+      /\bthreads\b/i.test(normalized)
+      || /\bx\/twitter\b/i.test(normalized)
+      || /\bemail\b/i.test(normalized)
+      || /\be-posta\b/i.test(lower)
+      || /\bgeneric chat\b/i.test(normalized)
+      || /\brandom chat\b/i.test(normalized)
+      || /\bextra social logos?\b/i.test(normalized)
+    )
+  ) {
+    facts.push('When channel coverage is shown, use exactly WhatsApp, Instagram, Telegram, and Messenger; do not add Threads, X/Twitter, email, generic chat icons, or extra social logos.');
   }
 
   return dedupeList(facts, 12);

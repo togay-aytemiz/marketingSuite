@@ -52,14 +52,14 @@ test('social post app wiring separates copy planning from visual rendering', () 
   assert.match(appSource, /onGenerateVisuals=\{handleGenerateSocialPostVisuals\}/);
 });
 
-test('social post app composites the shared lockup onto generated text-free base images', () => {
+test('social post app lets Gemini render the shared lockup without a canvas overlay pass', () => {
   const appSource = readFileSync(path.join(process.cwd(), 'src', 'App.tsx'), 'utf8');
 
-  assert.match(appSource, /composeSocialPostVisualWithCopy/);
-  assert.match(appSource, /socialPostBaseVisualsRef/);
+  assert.doesNotMatch(appSource, /composeSocialPostVisualWithCopy/);
+  assert.doesNotMatch(appSource, /socialPostBaseVisualsRef/);
   assert.match(appSource, /const baseVisual = fittedVisual \|\| visual/);
-  assert.match(appSource, /headline:\s*plannedHeadline/);
-  assert.match(appSource, /subheadline:\s*plannedSubheadline/);
+  assert.match(appSource, /nextVisuals\[i\] = baseVisual/);
+  assert.match(appSource, /nextVisuals\[index\] = baseVisual/);
 });
 
 test('social post planning reuses one shared headline and subheadline across all visual variations', () => {
@@ -79,8 +79,8 @@ test('social post magic edit replans the visual prompt from the user feedback be
   assert.match(appSource, /const magicEditPlan = await planSocialPostPrompt/);
   assert.match(appSource, /extraInstruction:\s*comment/);
   assert.match(appSource, /magicEditPlan\?\.prompt\?\.trim\(\)/);
-  assert.match(appSource, /const previousBaseVisual = state\.socialPostFinalVisuals\[index\]/);
-  assert.match(appSource, /previousImage:\s*previousBaseVisual \|\| undefined/);
+  assert.match(appSource, /const previousVisual = state\.socialPostFinalVisuals\[index\]/);
+  assert.match(appSource, /previousImage:\s*previousVisual \|\| undefined/);
 });
 
 test('social post sidebar mirrors visual creator style with collapsible sections', () => {

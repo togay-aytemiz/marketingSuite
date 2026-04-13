@@ -79,3 +79,44 @@ const labels = ['hot', 'warm', 'cold'];
     fs.rmSync(tempRoot, { recursive: true, force: true });
   }
 });
+
+test('getVisualRealityContextSnapshot discovers social visual guardrails from agent product context', () => {
+  const previousCwd = process.cwd();
+  const tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'marketing-suite-visual-reality-'));
+  const appDir = path.join(tempRoot, 'marketing-suit');
+  const productDir = path.join(tempRoot, 'leadqualifier');
+
+  fs.mkdirSync(appDir, { recursive: true });
+  fs.mkdirSync(path.join(productDir, '.agents'), { recursive: true });
+
+  fs.writeFileSync(
+    path.join(productDir, '.agents', 'product-marketing-context.md'),
+    `# Qualy Product Marketing Context
+
+**Launch asset positioning:** First-launch visuals should lead with Qualy AI and the AI-powered unified inbox.
+
+**Logo and brand presence:** Visual prompts must require a visible Qualy wordmark or logo.
+
+**AI actor representation:** If a visual includes the bot/agent, label it as Qualy AI. Do not use a human avatar or the bare labels asistan / Assistant.
+
+**Channel logo policy:** When the visual communicates channel coverage, show exactly WhatsApp, Instagram, Telegram, Messenger. Do not add Threads, X/Twitter, email, generic chat icons, or extra social logos.
+`,
+    'utf8'
+  );
+
+  process.chdir(appDir);
+
+  try {
+    const snapshot = getVisualRealityContextSnapshot();
+
+    assert.equal(snapshot.available, true);
+    assert.match(snapshot.promptText, /Qualy AI.*AI-powered unified inbox/i);
+    assert.match(snapshot.promptText, /visible Qualy wordmark or logo/i);
+    assert.match(snapshot.promptText, /bare Assistant\/asistan labels/i);
+    assert.match(snapshot.promptText, /exactly WhatsApp, Instagram, Telegram, and Messenger/i);
+    assert.match(snapshot.promptText, /Threads, X\/Twitter, email, generic chat icons, or extra social logos/i);
+  } finally {
+    process.chdir(previousCwd);
+    fs.rmSync(tempRoot, { recursive: true, force: true });
+  }
+});

@@ -425,6 +425,9 @@ test('generateSocialPostPromptPlan requests a Gemini-ready prompt for social pag
     assert.match(prompts[0] || '', /Treat the headline and subheadline as shared campaign copy that can be reused across all four visual variations/i);
     assert.match(prompts[0] || '', /Do not plan standalone decorative logo placements or make the composition revolve around a logo/i);
     assert.match(prompts[0] || '', /If the product ui naturally contains a brand mark, it may appear there, but it should stay non-focal/i);
+    assert.doesNotMatch(prompts[0] || '', /The image is not text-free/i);
+    assert.match(prompts[0] || '', /returned Gemini prompt field should stay copy-free/i);
+    assert.match(prompts[0] || '', /final Gemini render request receives headline and subheadline separately/i);
     assert.match(prompts[0] || '', /VARIATION DIRECTION:/i);
     assert.match(prompts[0] || '', /headline/i);
     assert.match(prompts[0] || '', /Return JSON only/i);
@@ -603,7 +606,7 @@ test('generateSocialPostPromptPlan lets AI decide focus when the user leaves the
   }
 });
 
-test('generateSocialPostPromptPlan preserves white source ui surfaces when a reference image exists', async () => {
+test('generateSocialPostPromptPlan adapts dark reference images without light canvas takeover', async () => {
   const originalFetch = global.fetch;
   const originalOpenAiKey = process.env.OPENAI_API_KEY;
   const prompts: string[] = [];
@@ -653,8 +656,9 @@ test('generateSocialPostPromptPlan preserves white source ui surfaces when a ref
     } as any);
 
     assert.match(prompts[0] || '', /Treat the uploaded reference UI as the primary product surface source/i);
-    assert.match(prompts[0] || '', /Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass/i);
-    assert.match(prompts[0] || '', /Do not reinterpret the source as a dark fantasy dashboard or generic glass cards/i);
+    assert.match(prompts[0] || '', /Adapt white or light reference panels into dark graphite or ink surfaces/i);
+    assert.match(prompts[0] || '', /Do not produce a bright white page, spreadsheet, chart, table, axis plot, or light-mode dashboard/i);
+    assert.doesNotMatch(prompts[0] || '', /Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass/i);
     assert.match(prompts[0] || '', /Never preserve personal names, usernames, initials, or profile photos from the reference/i);
     assert.match(prompts[0] || '', /Simplify or regenerate avatars into generic fictional profile markers/i);
   } finally {
@@ -910,6 +914,91 @@ test('generateBlogPost uses a second translation call for BOTH language mode', a
 
   global.fetch = originalFetch;
   process.env.OPENAI_API_KEY = originalOpenAiKey;
+});
+
+test('generateBlogPost includes local product reality context in the draft prompt', async () => {
+  const originalFetch = global.fetch;
+  const originalOpenAiKey = process.env.OPENAI_API_KEY;
+  const originalRealityRepoPaths = process.env.VISUAL_CONTEXT_REPO_PATHS;
+  const prompts: string[] = [];
+  let callIndex = 0;
+
+  process.env.OPENAI_API_KEY = 'sk-test';
+  process.env.VISUAL_CONTEXT_REPO_PATHS = '../Qualy-lp';
+
+  global.fetch = (async (_input: RequestInfo | URL, init?: RequestInit) => {
+    callIndex += 1;
+    const body = JSON.parse(String(init?.body || '{}'));
+    prompts.push(String(body?.messages?.[1]?.content || ''));
+
+    const content = callIndex === 1
+      ? JSON.stringify({
+          title: 'AI Gelen Kutusu ile Müşteri Adayı Önceliklendirme',
+          description: 'Servis ekipleri için müşteri adayı önceliklendirme rehberi.',
+          slug: 'ai-gelen-kutusu-musteri-adayi-onceliklendirme',
+          categoryId: null,
+          content: [
+            'Giriş paragrafı.',
+            '',
+            '## AI Gelen Kutusu ile Önceliklendirme',
+            '',
+            `${Array.from({ length: 850 }, () => 'önceliklendirme').join(' ')} operasyonel rehber.`,
+          ].join('\n'),
+        })
+      : JSON.stringify({
+          coverImagePrompt: 'Messaging team prioritizing customer requests',
+          coverAltText: 'Müşteri adayı önceliklendirme kapak görseli',
+          inlineImages: [],
+        });
+
+    return new Response(
+      JSON.stringify({
+        choices: [
+          {
+            message: {
+              content,
+            },
+          },
+        ],
+      }),
+      {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      }
+    );
+  }) as typeof fetch;
+
+  try {
+    await generateBlogPost(
+      'Qualy',
+      'AI Inbox',
+      'Service teams',
+      'AI inbox for WhatsApp, Instagram, Messenger, and Telegram teams',
+      'AI gelen kutusu ile müşteri adayı önceliklendirme',
+      'ai gelen kutusu, müşteri adayı önceliklendirme',
+      'Professional & Informative',
+      'Short (800 - 1100 words)',
+      'TR',
+      'Editorial B2B (minimal cover, realistic inline, brandless)'
+    );
+
+    assert.equal(callIndex, 2);
+    assert.match(prompts[0] || '', /LOCAL CODEBASE REALITY CONTEXT/i);
+    assert.match(prompts[0] || '', /Shipped Product Facts:/i);
+    assert.match(prompts[0] || '', /Messaging channels repeated across shipped files/i);
+  } finally {
+    global.fetch = originalFetch;
+    if (originalOpenAiKey === undefined) {
+      delete process.env.OPENAI_API_KEY;
+    } else {
+      process.env.OPENAI_API_KEY = originalOpenAiKey;
+    }
+    if (originalRealityRepoPaths === undefined) {
+      delete process.env.VISUAL_CONTEXT_REPO_PATHS;
+    } else {
+      process.env.VISUAL_CONTEXT_REPO_PATHS = originalRealityRepoPaths;
+    }
+  }
 });
 
 test('generateBlogPost expands under-length drafts before building the image plan', async () => {

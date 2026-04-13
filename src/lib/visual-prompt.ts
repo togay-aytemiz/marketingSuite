@@ -9,6 +9,7 @@ import {
   buildVisualThemeBlock,
   buildVisualHouseStyleBlock,
   getVisualHouseStyleVariationText,
+  resolveVisualThemeForVariation,
 } from './visual-house-style';
 import type { VisualTheme } from './visual-house-style';
 
@@ -326,6 +327,7 @@ function buildChannelAccentBlock(requestedChannels: string[]) {
 CHANNEL ACCENTS:
 - Keep any native-color channel accents small, crisp, and localized near the requested focus.
 - Use them as a restrained spark, not a colorful redesign.
+- Prefer outline, knockout, stencil, or cutout glyph treatments instead of filled app-icon tiles.
 - ${hints.join('\n- ')}
 `.trim();
 }
@@ -588,6 +590,8 @@ export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
   const brandName = resolveVisualBrandName(input.brandName);
   const variationIndex = input.variationIndex ?? 0;
   const renderText = input.renderText ?? true;
+  const resolvedTheme = resolveVisualThemeForVariation(input.theme || 'mixed', variationIndex);
+  const isDarkTheme = resolvedTheme === 'dark';
   const normalizedPlannedPrompt = String(input.plannedPrompt || '').trim()
     || `Minimal ${VISUAL_HOUSE_STYLE.name} editorial poster for ${input.featureName || brandName || 'the product'}.`;
   const themeBlock = buildVisualThemeBlock(input.theme || 'mixed', variationIndex);
@@ -616,12 +620,20 @@ export function buildGeminiRenderPrompt(input: GeminiRenderPromptInput) {
 
   let assetInstruction = '';
   if (input.previousImage) {
-    assetInstruction = `
+    assetInstruction = renderText
+      ? `
 EDIT MODE:
 - The first attached image is the current generated visual to edit.
 - Edit that provided generated image instead of rebuilding from zero.
 - Keep the strongest existing composition choices unless the feedback requires a stronger change.
 - The output must visibly apply the user feedback while preserving the supplied headline and subheadline copy.
+`.trim()
+      : `
+EDIT MODE:
+- The first attached image is the current generated text-free base visual to edit.
+- Edit that provided generated image instead of rebuilding from zero.
+- Keep the strongest existing composition choices unless the feedback requires a stronger change.
+- The output must visibly apply the user feedback while preserving a no-copy image for flows that intentionally disable text rendering.
 `.trim();
   } else if (input.images.length > 0) {
     assetInstruction = `
@@ -632,11 +644,16 @@ SCREENSHOT HANDLING:
 - If the screenshot contains white or light surfaces, keep them crisp and solid.
 `.trim();
   } else if (input.referenceImage) {
+    const surfaceInstruction = isDarkTheme
+      ? `- For dark theme renders, adapt white or light reference surfaces into dark graphite, ink, or navy product surfaces while preserving panel structure.
+- Do not output a bright white page, spreadsheet, chart, table, axis plot, or light-mode dashboard.`
+      : '- Keep white or light surfaces crisp, bright, and product-real.';
+
     assetInstruction = `
 REFERENCE-LED COMPOSITION:
 - Build the composition around the uploaded reference UI rather than inventing a different dashboard.
 - Preserve the strongest panel structure and simplify only non-essential microcopy or chrome.
-- Keep white or light surfaces crisp, bright, and product-real.
+${surfaceInstruction}
 - Replace source-specific people identifiers and profile photos with fictional or generic markers.
 `.trim();
   } else {
@@ -646,13 +663,19 @@ NO SCREENSHOT PROVIDED:
 `.trim();
   }
 
+  const referenceSurfaceInstruction = isDarkTheme
+    ? `- For dark theme renders, adapt white or light reference surfaces into dark graphite, ink, or navy product surfaces.
+- Do not output a bright white page, spreadsheet, chart, table, axis plot, or light-mode dashboard.
+- Keep the product UI crisp and product-real; use glass only as a supporting background or action layer.`
+    : `- If the reference contains white or light surfaces, keep them crisp, bright, and solid.
+- Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard.`;
+
   const referenceInstruction = input.referenceImage
     ? `
 REFERENCE IMAGE HANDLING:
 - Treat the uploaded image as primary UI source material, not a passive style reference.
 - Keep recognizable panel geometry, spacing, and hierarchy from the reference.
-- If the reference contains white or light surfaces, keep them crisp, bright, and solid.
-- Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard.
+${referenceSurfaceInstruction}
 - Use 1-3 focused crops or panels from the reference.
 - Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift.
 - Simplify dense non-essential microcopy into no-text placeholders, but keep the product surface feeling real and close to the source.
@@ -664,7 +687,19 @@ REFERENCE IMAGE HANDLING:
     : '';
 
   const brandReferenceInstruction = input.hasBrandReferences
-    ? `
+    ? input.requireBrandPlacement
+      ? `
+BRAND REFERENCES:
+- Official ${brandName} brand references are attached.
+- A single restrained ${brandName} brand mark is required.
+- Use the attached official ${brandName} brand reference as the source of truth.
+- Do not invent, redraw, stylize, misspell, crop, mirror, or approximate the ${brandName} logo.
+- For dark backgrounds, use the attached white ${brandName} logo/wordmark; for light backgrounds, use the attached black ${brandName} logo/wordmark.
+- If the reference image already contains the correct ${brandName} logo, preserve that existing logo exactly rather than regenerating it.
+- Keep the brand mark small, premium, and non-focal, either as a natural in-product brand mark or a restrained brand signature.
+- Do not isolate, badge, enlarge, or repeat brand marks.
+`.trim()
+      : `
 BRAND REFERENCES:
 - Official ${brandName} brand references are attached.
 - Do not add a standalone decorative logo placement.
@@ -673,7 +708,7 @@ BRAND REFERENCES:
 - If both black or white logo variants are attached, choose the version with the clearest contrast against the local background.
 - Do not isolate, badge, enlarge, or repeat brand marks.
 `.trim()
-      : '';
+    : '';
 
   const copyInstruction = renderText
     ? buildRenderCopyBlock(

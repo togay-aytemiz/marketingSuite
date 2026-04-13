@@ -116,3 +116,27 @@ test('buildGeminiRenderPrompt keeps brand references as correctness guides witho
   assert.match(prompt, /natural in-product brand mark/i);
   assert.doesNotMatch(prompt, /single subtle official brand logo placement is allowed/i);
 });
+
+test('buildGeminiRenderPrompt can require an official Qualy brand mark without invented logo forms', () => {
+  const prompt = buildGeminiRenderPrompt({
+    plannedPrompt: 'Premium social page post visual for Qualy.',
+    headline: 'One inbox. Smarter replies',
+    subheadline: 'Learns your business and prioritizes serious leads.',
+    cta: '',
+    includeCta: false,
+    renderText: true,
+    language: 'EN',
+    images: [],
+    featureName: 'AI Inbox',
+    theme: 'dark',
+    variationIndex: 0,
+    brandName: 'Qualy',
+    hasBrandReferences: true,
+    requireBrandPlacement: true,
+  });
+
+  assert.match(prompt, /A single restrained Qualy brand mark is required/i);
+  assert.match(prompt, /Use the attached official Qualy brand reference as the source of truth/i);
+  assert.match(prompt, /Do not invent, redraw, stylize, misspell, crop, mirror, or approximate the Qualy logo/i);
+  assert.match(prompt, /For dark backgrounds, use the attached white Qualy logo\/wordmark/i);
+});

@@ -16,7 +16,7 @@ export const SOCIAL_POST_DEFAULTS = {
 } as const;
 
 const SOCIAL_POST_VARIATION_DIRECTIONS = [
-  'Large headline lockup plus one hero UI crop. Keep the typographic area dominant, use one oversized product fragment, and protect strong negative space.',
+  'Large copy-safe negative space plus one hero UI crop. Keep the reserved copy area dominant, use one oversized product fragment, and protect strong negative space.',
   'Tight feature crop with one small floating tool or action chip. Push the capability much closer and make the core action feel immediate.',
   '2-layer editorial UI collage with a connector path. Show 2-3 modules together but keep them sparse, clean, and easy to scan.',
   'Quiet editorial product composition. Use more whitespace without abandoning the requested theme or product-UI base. Keep at least one crisp SaaS UI fragment, panel, or product card clearly present. Do not turn the quiet variation into photography, a real-world location scene, a map, or a bright document screenshot.',
@@ -32,26 +32,39 @@ STYLE LOCK:
 - Lighting: white haze + soft chrome bloom
 - Atmosphere: editorial, calm, premium, minimal, high-end
 - Add gentle grain/noise for depth
+- Add subtle grain/noise, blur falloff, rim highlights, and soft bloom so the output feels designed rather than flat, but keep text areas clean and high contrast
 - Optional: subtle dot or grid pattern for structure
 - Prefer a low-contrast dot matrix field with evenly spaced micro-dots when the background needs extra texture
 - Keep any dotted field faded, peripheral, and subordinate to the main composition
+- When the user references respond.io-like launch assets, steer toward a glassy launch-card system: soft blue/lilac/violet gradient fields, translucent frosted panels, luminous rounded rectangles, haloed chat/action bubbles, floating square AI icons, dotted connector paths, and a low-contrast dot-matrix or halftone grid
+- Use a refined background pattern layer in most outputs: dot-matrix, halftone grid, contour lines, or faint connector-line network
+- Keep the pattern at 5-12% visual weight, mostly in the outer corners or behind the hero UI, with soft fade edges
+- Avoid plain empty backgrounds; make the canvas feel designed even when the layout is minimal
+- Add a soft glassy acrylic effect in the background system: frosted translucent background plates, blurred halos, specular edge highlights, and faint chrome reflections behind the hero UI
+- Keep the core product UI card crisp, opaque, and readable; do not turn the main UI into frosted glass or a foggy translucent dashboard
+- Do not imitate any third-party site exactly; translate the polished customer-conversation SaaS pattern language into Qualy's own restrained visual system
+- Do not copy respond.io logos, exact copy, exact layout, or proprietary UI; use the reference only for mood, depth, glow, and composition logic
 
 UI VISUAL LANGUAGE:
 - Editorial UI collage, not a futuristic gradient poster
-- UI cards should feel crisp, product-real, and editorial instead of glossy glass objects
+- UI cards should feel crisp, product-real, and editorial; use glass only for background plates, halos, and supporting shells
 - Soft shadows, clean edges, and controlled highlights
+- Add subtle acrylic edge highlights on floating panels, badges, and connector shells without making them look like shiny plastic
 - Slight perspective and layered depth without drifting into fantasy UI
 - Elements: cropped UI cards, document panels, tags, toggles, status chips, buttons, connector paths
+- Favor a tall editorial hierarchy for launch/feature posts: small brand wordmark near the top, large short headline, one cropped product UI scene below or behind it, and one foreground glass bubble/action card that demonstrates the feature
 - Avoid clutter; every element must earn its place
 
 COLOR RULES:
 - Base: black, white, graphite, smoke, cool gray
 - Accent: soft silver / smoke / chrome glow plus restrained indigo/violet gradient accents
 - Purple should stay slight and controlled, never the dominant full-canvas color
-- App-rendered overlay text: white, off-white, charcoal, or near-black depending on theme
+- Gemini-rendered lockup text: white, off-white, charcoal, or near-black depending on theme
 - In light mode, allow one localized pastel accent field or soft tinted panel edge behind the hero area so the frame does not feel sterile
 - Allow 1-2 small native-color channel icons only when the channel itself is central to the message
 - If native-color channel icons appear, keep them crisp and small, using familiar hues such as WhatsApp green, Instagram gradient, Messenger blue
+- Prefer outline, knockout, stencil, or cutout glyph treatments instead of filled app-icon tiles
+- Instagram should read as a camera outline, gradient rim, or cutout glyph, not as a solid filled square or generic rounded gradient blob
 - Do not turn the whole palette colorful just because one or two icons use their native colors
 - Avoid neon color dominance, saturated accent floods, and warm color bias
 - Avoid flat pure black/white emptiness; use depth, gradient transition, or soft atmospheric texture instead
@@ -63,16 +76,16 @@ COMPOSITION:
 - Use connector paths, glow dots, and crop relationships to imply product logic
 - Never let the layout feel like a busy dashboard mosaic
 
-TYPOGRAPHY LOCKUP:
-- The app will overlay the exact headline and subheadline after image generation
-- Reserve a clean typography-safe zone for that app-rendered lockup, usually top-aligned or left-aligned
-- Do not ask Gemini to render the headline or subheadline
-- The generated base image itself should be text-free except for abstract no-text UI skeletons
+GEMINI COPY LOCKUP ZONE:
+- The final Gemini render request receives the exact headline and subheadline separately from this planned prompt
+- Reserve a clean typography-safe and copy-safe zone for that Gemini-rendered lockup, usually top-aligned or left-aligned
+- Do not include the literal headline or subheadline text inside this planned prompt field
+- The planned prompt field itself should stay copy-free except for abstract no-text UI skeleton guidance
 - Do not rely on extra readable UI microcopy to explain the concept
 
 SUPPORTING MICROCOPY:
 - Do not ask Gemini to render intentional secondary UI text inside cards; use abstract skeleton lines, no-text chips, dots, and icons instead
-- Let the app-rendered headline lockup carry the main message
+- Let the Gemini-rendered headline and subheadline carry the main message
 
 MOOD:
 - Smart, automated, calm, confident
@@ -98,19 +111,23 @@ If DARK mode:
 - Background: deep black / graphite (#030303 - #111111)
 - Accents: white haze, soft silver bloom, restrained chrome edge light, and a restrained indigo/violet gradient transition
 - UI cards: crisp charcoal / deep graphite product surfaces with minimal transparency
-- App-rendered overlay text: white / off-white
+- Gemini-rendered lockup text: white / off-white
 - Overall mood: monochrome, cinematic, premium
+- Prefer a soft vertical gradient or glow field instead of a flat black board
 - Subtle dot or grid pattern is allowed in low-contrast background zones
 - A dotted field can sit off to one side or fade across the canvas, similar to a premium presentation backdrop rather than a loud pattern
+- Use luminous frosted-glass foreground chips or bubbles sparingly, with crisp headline text and controlled bloom
 
 If LIGHT mode:
 - Background: very light gray / soft white (#F5F5F5 - #FFFFFF)
 - Accents: pale silver haze, restrained chrome highlight, subtle cool-gray shadow, and a faint cool-blue, lilac, blush, or mint haze when needed
 - UI cards: white / soft-white crisp panels with soft shadows
 - Borders: subtle gray (#E7E7E7)
-- App-rendered overlay text: dark gray / near black (#111827)
+- Gemini-rendered lockup text: dark gray / near black (#111827)
 - Overall mood: clean, editorial, minimal, airy SaaS style
-- Use a soft editorial tint field, localized pastel accent field, or gradient paper wash behind the hero zone instead of a plain flat white board
+- Use a soft editorial tint field, localized pastel accent field, gradient paper wash, or frosted acrylic halo behind the hero zone instead of a plain flat white board
+- Give light mode a visible but restrained glassy acrylic lift: translucent off-white plates, blurred pastel refraction, thin chrome rim light, and soft layered shadows behind the main UI
+- Keep light-mode glass at the background and supporting-shell level only; the central product UI should stay solid white, crisp, and legible
 - Keep the same composition system as dark mode, just with softer contrast and brighter surfaces
 
 CONSISTENCY RULE:
@@ -386,19 +403,25 @@ export interface SocialPostPlannerPromptInput {
   realityContextPromptText?: string;
 }
 
-function buildReferenceImageContextBlock(hasReferenceImage?: boolean) {
+function buildReferenceImageContextBlock(hasReferenceImage?: boolean, theme: SocialPostTheme = 'dark') {
   if (!hasReferenceImage) {
     return '';
   }
+
+  const surfaceInstruction = theme === 'dark'
+    ? `- Adapt white or light reference panels into dark graphite or ink surfaces while preserving recognizable geometry, spacing, hierarchy, and core product structure.
+- Do not produce a bright white page, spreadsheet, chart, table, axis plot, or light-mode dashboard.
+- Keep the product UI crisp and product-real; use glass only as a supporting background, shell, or action layer.`
+    : `- Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass.
+- Do not reinterpret the source as a dark fantasy dashboard or generic glass cards.`;
 
   return `
 REFERENCE IMAGE MODE:
 - An uploaded reference UI exists for this variation.
 - Treat the uploaded reference UI as the primary product surface source, not loose inspiration.
 - Keep recognizable panel geometry, spacing, hierarchy, and core product structure from that source.
-- Keep white or light panels crisp, solid, and product-real instead of turning them into smoked or frosted glass.
+${surfaceInstruction}
 - Use one localized accent, outline, glow, crop, or contrast lift to make the requested focus read first.
-- Do not reinterpret the source as a dark fantasy dashboard or generic glass cards.
 - Simplify only dense microcopy or non-essential chrome; keep the product surface feeling real and close to the shipped UI.
 - Never preserve personal names, usernames, initials, or profile photos from the reference.
 - Simplify or regenerate avatars into generic fictional profile markers.
@@ -444,6 +467,7 @@ function buildChannelAccentBlock(requestedChannels: string[]) {
 CHANNEL ACCENTS:
 - Keep any native-color channel accents small, crisp, and localized near the requested focus.
 - Use these accents as a subtle lift, not a colorful redesign.
+- Prefer outline, knockout, stencil, or cutout glyph treatments instead of filled app-icon tiles.
 - ${hints.join('\n- ')}
 `.trim();
 }
@@ -466,11 +490,11 @@ function buildSocialPostVisibleTextLanguageLock(language: SocialPostLanguage) {
   if (language === 'TR') {
     return `
 TURKISH VISIBLE TEXT LOCK:
-- Gemini's base image should avoid readable conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text.
+- Outside the Gemini-rendered headline/subheadline lockup, avoid readable conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text.
 - If any unavoidable visible UI text remains, it must be Turkish with natural Turkish characters.
 - Do not render mixed-language or pseudo-Turkish strings; no gibberish, malformed words, partial translations, or Turkish-looking nonsense.
 - Avoid readable English terms such as "Lead Scoring", "High Score", "Assistant", or "AI response"; use Turkish equivalents only when supporting UI text is truly necessary.
-- Do not render Turkish ad copy in the base image; the app overlays final copy after generation.
+- Do not include Turkish ad copy inside the planned prompt field; the final Gemini render receives copy separately.
 - If supporting chat or UI text is unavoidable, use short natural Turkish phrases.
 - Prefer abstract skeleton lines, dots, and no-text placeholders for decorative dense UI chrome.
 `.trim();
@@ -478,10 +502,10 @@ TURKISH VISIBLE TEXT LOCK:
 
   return `
 VISIBLE TEXT LANGUAGE LOCK:
-- Gemini's base image should avoid readable conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text.
+- Outside the Gemini-rendered headline/subheadline lockup, avoid readable conversation, chat bubble, message, reply, label, callout, status chip, score indicator, and UI text.
 - If any unavoidable visible UI text remains, it must be English.
 - Do not render mixed-language strings, pseudo-language gibberish, malformed words, or partial translations.
-- Do not render English ad copy in the base image; the app overlays final copy after generation.
+- Do not include English ad copy inside the planned prompt field; the final Gemini render receives copy separately.
 - If supporting chat or UI text is unavoidable, use short natural English phrases.
 - Prefer abstract skeleton lines, dots, and no-text placeholders for decorative dense UI chrome.
 `.trim();
@@ -506,7 +530,7 @@ export function buildSocialPostPlannerPrompt(input: SocialPostPlannerPromptInput
     'LOCAL CODEBASE REALITY CONTEXT (derived from nearby product code)',
     input.realityContextPromptText
   );
-  const referenceImageContextBlock = buildReferenceImageContextBlock(input.hasReferenceImage);
+  const referenceImageContextBlock = buildReferenceImageContextBlock(input.hasReferenceImage, theme);
   const requestedChannels = detectRequestedChannels([focus, extraInstruction]);
   const channelPriorityBlock = buildChannelPriorityBlock(requestedChannels);
   const channelAccentBlock = buildChannelAccentBlock(requestedChannels);
@@ -580,16 +604,15 @@ NON-NEGOTIABLE RULES:
 - Return one production-ready Gemini render prompt in English.
 - This is for an Instagram or LinkedIn page post, not a banner ad, device mockup, or website hero.
 - Keep the same overall layout logic between dark and light themes; only colors, lighting, and contrast should change.
-- The app will overlay the exact headline and subheadline after image generation.
-- Reserve a clean typography-safe zone for the app-rendered lockup.
-- Do not ask Gemini to render the headline or subheadline.
-- The generated base image itself should be text-free except for abstract no-text UI skeletons.
+- The final Gemini render request receives the exact headline and subheadline separately from this planned prompt.
+- Reserve a clean typography-safe zone for the Gemini-rendered lockup.
+- Do not include the literal headline/subheadline text or a second copy lockup inside the planned prompt field.
 - Keep all 4 variations as siblings of the same brief; reuse the same headline and subheadline copy while only crop, hierarchy, and supporting density change.
-- Every variation must remain a social page post base visual with product UI or abstract SaaS interface structure.
+- Every variation must remain a rendered social page post visual with product UI or abstract SaaS interface structure.
 - Never turn a variation into daylight photography, city/building/street imagery, map-like views, or a bright text-heavy screenshot.
-- Any visible text in the final app-composited export must be in ${languageLabel}; Gemini's base image should avoid readable text entirely.
+- Any visible text in the final Gemini-rendered export must be in ${languageLabel}; the planned prompt should avoid extra readable UI text entirely.
 - Any example words, labels, status names, chip text, or focus phrases are semantic guidance only. Do not instruct Gemini to render those words literally on canvas.
-- Avoid intentional readable microcopy in the Gemini base image; represent UI content with no-text skeleton lines, dots, or neutral blocks.
+- Outside the Gemini-rendered headline/subheadline lockup, avoid intentional readable microcopy; represent UI content with no-text skeleton lines, dots, or neutral blocks.
 - Do not render prompt field labels such as "Headline", "Subheadline", "CTA", or "Call to Action" as visible words.
 ${visibleTextLanguageLock}
 - Do not plan standalone decorative logo placements or make the composition revolve around a logo.

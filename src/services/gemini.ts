@@ -334,11 +334,11 @@ export async function generateSocialPostVisual(input: SocialPostVisualInput) {
     previousImage: input.previousImage,
     userComment: input.userComment,
     plannedPrompt: input.plannedPrompt,
-    renderText: false,
+    renderText: true,
     attachBrandReferences: true,
     brandReferenceTheme: input.theme,
     brandReferenceKind: 'logo',
-    requireBrandPlacement: false,
+    requireBrandPlacement: true,
   });
 }
 

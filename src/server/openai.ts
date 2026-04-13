@@ -1431,6 +1431,10 @@ IMPORTANT: Align copy concepts, feature emphasis, and value framing with this st
 }
 
 function buildVisualRealityContextInstruction() {
+  return buildProductRealityContextInstruction();
+}
+
+function buildProductRealityContextInstruction() {
   const context = getVisualRealityContextSnapshot();
   if (!context.available || !context.promptText) {
     return '';
@@ -1440,7 +1444,7 @@ function buildVisualRealityContextInstruction() {
 LOCAL CODEBASE REALITY CONTEXT (derived from nearby product code):
 ${context.promptText}
 
-IMPORTANT: Treat this local product reality as higher priority than generic SaaS assumptions. Do not invent alternate score scales, channel coverage, or feature framing that conflicts with it.
+IMPORTANT: Treat this local product reality as higher priority than generic SaaS assumptions. Do not invent alternate score scales, channel coverage, feature claims, integrations, workflows, or UI states that conflict with it.
 `;
 }
 
@@ -2189,7 +2193,8 @@ Rules:
 - Do not let background product context, project naming, or dominant channel references override the user-provided focus.
 - Use the product context, PRD/ROADMAP context, and local codebase reality to validate the claim set, not to replace the requested angle with a broader default story.
 - Treat the headline and subheadline as shared campaign copy that can be reused across all four visual variations; variation should change image composition only, not the copy angle.
-- The image is not text-free. Design it around a strong readable headline lockup; any intentional supporting UI copy must be short, sparse, and in the selected language.
+- The returned Gemini prompt field should stay copy-free except for abstract UI skeletons; the final Gemini render request receives headline and subheadline separately. Reserve a clear typography-safe zone for that lockup.
+- Do not include the returned headline or subheadline text inside the returned Gemini prompt field; that prompt field is visual direction only.
 - Only decorative dense UI chrome may become abstract skeleton lines or no-text placeholders.
 - Keep the frame suitable for Instagram or LinkedIn page posts, not banner ads or website hero layouts.
 - Keep the composition consistent with the selected theme and category system.
@@ -2407,6 +2412,7 @@ export const generateBlogPost = async (
   );
   const writingQualityInstruction = buildBlogWritingQualityInstruction('draft');
   const strategyContextInstruction = buildStrategyContextInstruction();
+  const realityContextInstruction = buildProductRealityContextInstruction();
   const recentPostsInstruction = buildRecentPostsInstruction(recentPosts, []);
   const categoryDistributionInstruction = buildCategoryDistributionInstruction(recentPosts, sanityCategories);
   const portfolioStageInstruction = buildPortfolioStageInstruction(recentPosts.length);
@@ -2446,6 +2452,7 @@ Target Audience: ${targetAudience || 'General audience'}
 Product Description: ${description || 'A modern software solution.'}
 ${QUALY_SITE_GUARDRAILS}
 ${strategyContextInstruction}
+${realityContextInstruction}
 
 BLOG INPUT:
 Topic/Instruction: ${topic || 'No explicit topic provided. Decide the best topic based on context.'}
@@ -2504,6 +2511,7 @@ CRITICAL RULES:
    - Prefer specific patterns such as problem/solution, how-to, comparison, checklist, template, or use-case framing.
    - Avoid generic titles like "ürün notu", "product update", or "feature news" unless the user explicitly asked for release notes.
 14. If the broader workflow later needs an English version, that translation will happen in a separate call. This step must still return only the primary ${targetLang} fields.
+15. Use the local codebase reality context as the claim boundary for product facts, channels, scoring scale, handoff behavior, integrations, and shipped workflows.
 `,
   });
 
@@ -2879,6 +2887,10 @@ export const generateSocialPosts = async (
   blogContent: string,
   language: string
 ): Promise<{ twitter: string; linkedin: string } | null> => {
+  const strategyContextInstruction = buildStrategyContextInstruction();
+  const realityContextInstruction = buildProductRealityContextInstruction();
+  const outputLanguage = getSingleOutputLanguageName(language);
+
   return runOpenAiJson<{ twitter: string; linkedin: string }>({
     schemaName: 'social_posts',
     schema: {
@@ -2891,15 +2903,23 @@ export const generateSocialPosts = async (
       required: ['twitter', 'linkedin'],
     },
     prompt: `
+You are a senior social content strategist and B2B SaaS copywriter.
 Generate promotional social posts for this blog.
 
-Language: ${getSingleOutputLanguageName(language)}
+Language: ${outputLanguage}
+${QUALY_SITE_GUARDRAILS}
+${strategyContextInstruction}
+${realityContextInstruction}
+
 Blog Content (excerpt):
 ${String(blogContent || '').slice(0, 3500)}
 
 Rules:
-- twitter: punchy, under 280 chars, 2-3 hashtags, CTA
-- linkedin: professional, hook + 2-3 bullets + CTA + 3-5 hashtags
+- Base each post on the article's actual argument. Do not invent product claims, outcomes, integrations, pricing, customer proof, or feature availability.
+- Keep the CTA aligned with the blog context; invite reading or learning more instead of making an unsupported sales promise.
+- twitter: punchy, under 280 chars, 2-3 hashtags, one clear CTA.
+- linkedin: professional, hook + 2-3 bullets + CTA + 3-5 hashtags.
+- For Turkish output, avoid unnecessary English jargon such as lead, conversion, engagement, workflow, or sales funnel when a clear Turkish equivalent works.
 `,
   });
 };

@@ -279,7 +279,7 @@ test('planSocialPostPrompt sends theme, category, and per-image focus to the bac
   global.fetch = originalFetch;
 });
 
-test('generateSocialPostVisual asks Gemini for a text-free base while passing lockup copy through for app overlay', async () => {
+test('generateSocialPostVisual sends lockup copy directly to Gemini without app overlay mode', async () => {
   const originalFetch = global.fetch;
   let payload: Record<string, unknown> | null = null;
 
@@ -327,12 +327,12 @@ test('generateSocialPostVisual asks Gemini for a text-free base while passing lo
   assert.equal(payload?.headline, 'Önemli sohbetleri önce gör');
   assert.equal(payload?.subheadline, 'Yapay zeka hangi leadin sıcak olduğunu öne çıkarsın.');
   assert.equal(payload?.referenceImage, 'data:image/png;base64,reference');
-  assert.equal(payload?.renderText, false);
+  assert.equal(payload?.renderText, true);
   assert.equal(payload?.includeCta, false);
   assert.equal(payload?.attachBrandReferences, true);
   assert.equal(payload?.brandReferenceTheme, 'light');
   assert.equal(payload?.brandReferenceKind, 'logo');
-  assert.equal(payload?.requireBrandPlacement, false);
+  assert.equal(payload?.requireBrandPlacement, true);
   assert.equal(payload?.userComment, 'Reduce the glow and simplify the card stack.');
 
   global.fetch = originalFetch;

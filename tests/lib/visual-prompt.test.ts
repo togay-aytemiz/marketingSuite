@@ -572,7 +572,9 @@ test('buildGeminiRenderPrompt lets light themes stay airy while adding a restrai
 
   assert.match(prompt, /faint cool-blue, lilac, blush, or mint haze/i);
   assert.match(prompt, /Do not fall back to a flat plain white canvas/i);
-  assert.match(prompt, /Allow one small Instagram gradient icon or badge near the focal area/i);
+  assert.match(prompt, /Prefer outline, knockout, stencil, or cutout glyph treatments instead of filled app-icon tiles/i);
+  assert.match(prompt, /Allow one small Instagram gradient outline camera glyph, gradient rim, or knockout\/cutout badge near the focal area/i);
+  assert.match(prompt, /do not use a filled app-tile, solid gradient square, or generic rounded gradient blob/i);
   assert.match(prompt, /faint rose-lilac-peach tint behind that zone/i);
 });
 
@@ -599,7 +601,7 @@ test('buildGeminiRenderPrompt treats uploaded UI images as source material inste
   assert.match(prompt, /Do not copy its exact readable text, product copy, or layout verbatim/i);
 });
 
-test('buildGeminiRenderPrompt keeps uploaded reference ui crisp instead of reinterpreting it as glassy abstraction', () => {
+test('buildGeminiRenderPrompt adapts dark reference images without allowing light canvas takeover', () => {
   const prompt = buildGeminiRenderPrompt({
     plannedPrompt: 'Premium social page post visual with one dominant product crop.',
     headline: 'Yeni özellik',
@@ -618,8 +620,9 @@ test('buildGeminiRenderPrompt keeps uploaded reference ui crisp instead of reint
 
   assert.match(prompt, /Treat the uploaded image as primary UI source material, not a passive style reference/i);
   assert.match(prompt, /Keep recognizable panel geometry, spacing, and hierarchy from the reference/i);
-  assert.match(prompt, /If the reference contains white or light surfaces, keep them crisp, bright, and solid/i);
-  assert.match(prompt, /Do not reinterpret the reference as smoked glass, frosted panels, or a dark fantasy dashboard/i);
+  assert.match(prompt, /For dark theme renders, adapt white or light reference surfaces into dark graphite, ink, or navy product surfaces/i);
+  assert.match(prompt, /Do not output a bright white page, spreadsheet, chart, table, axis plot, or light-mode dashboard/i);
+  assert.doesNotMatch(prompt, /If the reference contains white or light surfaces, keep them crisp, bright, and solid/i);
   assert.match(prompt, /Use 1-3 focused crops or panels from the reference/i);
   assert.match(prompt, /Emphasize the focus with one localized accent, outline, glow, zoom, or contrast shift/i);
   assert.match(prompt, /Never preserve real names, usernames, initials, avatar photos, or face crops from the reference/i);

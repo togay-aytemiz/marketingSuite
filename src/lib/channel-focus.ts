@@ -8,10 +8,10 @@ const CHANNEL_DEFINITIONS = [
 export type KnownChannelLabel = (typeof CHANNEL_DEFINITIONS)[number]['label'];
 
 const CHANNEL_ACCENT_HINTS: Record<KnownChannelLabel, string> = {
-  WhatsApp: 'Allow one small WhatsApp green icon or badge near the focal area, plus a faint mint-green tint behind that zone.',
-  Instagram: 'Allow one small Instagram gradient icon or badge near the focal area, plus a faint rose-lilac-peach tint behind that zone.',
-  Messenger: 'Allow one small Messenger blue icon or badge near the focal area, plus a faint cool-blue tint behind that zone.',
-  Telegram: 'Allow one small Telegram blue icon or badge near the focal area, plus a faint icy-sky tint behind that zone.',
+  WhatsApp: 'Allow one small WhatsApp green outline chat glyph, knockout mark, or cutout badge near the focal area, plus a faint mint-green tint behind that zone.',
+  Instagram: 'Allow one small Instagram gradient outline camera glyph, gradient rim, or knockout/cutout badge near the focal area; do not use a filled app-tile, solid gradient square, or generic rounded gradient blob. Add only a faint rose-lilac-peach tint behind that zone.',
+  Messenger: 'Allow one small Messenger blue outline chat glyph, knockout mark, or cutout badge near the focal area, plus a faint cool-blue tint behind that zone.',
+  Telegram: 'Allow one small Telegram blue outline paper-plane glyph, knockout mark, or cutout badge near the focal area, plus a faint icy-sky tint behind that zone.',
 };
 
 function dedupeChannels(items: KnownChannelLabel[]) {

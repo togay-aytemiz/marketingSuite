@@ -81,6 +81,8 @@ Blog topic and blog writing prompts automatically try to load product strategy c
 
 When found, the app injects extracted update notes, in-scope features, and roadmap highlights into AI prompts. This keeps topic suggestions and generated posts aligned with real product capabilities.
 
+Visual and social-post prompt planning also reads nearby product reality files, including `docs/marketing_product_context.md` and `.agents/product-marketing-context.md`. Keep durable brand, channel, logo, and AI-agent visual rules there so generated social visuals do not drift into unsupported channels, generic assistant labels, or invented product states.
+
 You can inspect what was detected via:
 
 ```bash
